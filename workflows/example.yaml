@@ -1,0 +1,26 @@
+name: order-processing
+version: 1
+description: "Order fulfillment pipeline demonstrating all trigger types"
+steps:
+  - name: receive-order
+    description: "Validate and accept the order (manual confirmation)"
+    trigger: manual
+
+  - name: process-payment
+    description: "Charge the customer (auto after order received)"
+    trigger: auto
+    depends_on: [receive-order]
+    publish_to_topic: payment-events
+
+  - name: wait-for-fulfillment
+    description: "Await fulfillment system confirmation via queue-ti"
+    trigger: queueti
+    depends_on: [process-payment]
+    queueti_topic: fulfillment-results
+    queueti_consumer_group: queuetask-order-processing
+
+  - name: notify-customer
+    description: "Send notification to customer (auto after fulfillment)"
+    trigger: auto
+    depends_on: [wait-for-fulfillment]
+    publish_to_topic: customer-notifications

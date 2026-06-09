@@ -1,0 +1,22 @@
+# Build output
+/bin/
+
+# Go
+*.test
+*.out
+vendor/
+
+# Environment / config overrides
+*.local.yaml
+*.local.env
+.env
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
