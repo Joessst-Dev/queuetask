@@ -1,0 +1,25 @@
+name: demo
+version: 1
+description: >
+  End-to-end demo workflow — no external dependencies.
+  Every step is completable from the queuetask UI at http://localhost:8081.
+
+steps:
+  - name: submit
+    description: "Operator submits the request for review"
+    trigger: manual
+
+  - name: validate
+    description: "System validates the submitted request automatically"
+    trigger: auto
+    depends_on: [submit]
+
+  - name: approve
+    description: "Operator approves the validated request"
+    trigger: manual
+    depends_on: [validate]
+
+  - name: finalize
+    description: "System finalises and closes the request automatically"
+    trigger: auto
+    depends_on: [approve]

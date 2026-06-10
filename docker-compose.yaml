@@ -13,10 +13,28 @@
 #
 # queue-ti credentials: admin / secret
 #
-# The order-processing workflow is loaded automatically.
-# Start an instance with:
-#   curl -X POST http://localhost:8081/api/v1/workflows/order-processing/instances
-# Then visit http://localhost:8081 to watch it progress.
+# Two workflows are loaded automatically:
+#
+#   demo             — manual + auto steps only, fully controllable from the UI.
+#
+#     1. Start an instance:
+#          curl -X POST http://localhost:8081/api/v1/workflows/demo/instances
+#     2. Open http://localhost:8081, click the instance, then click Trigger on
+#        each waiting step. The auto steps complete on their own.
+#
+#   order-processing — full integration demo (manual + auto + queue-ti trigger).
+#
+#     1. Start an instance:
+#          curl -X POST http://localhost:8081/api/v1/workflows/order-processing/instances
+#     2. Trigger the first step via the UI.
+#     3. Advance the queueti step by publishing to the fulfillment-results topic:
+#          TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/token \
+#            -H 'Content-Type: application/json' \
+#            -d '{"username":"admin","password":"secret"}' | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+#          curl -X POST http://localhost:8080/api/v1/messages \
+#            -H "Authorization: Bearer $TOKEN" \
+#            -H 'Content-Type: application/json' \
+#            -d '{"topic":"fulfillment-results","payload":{"status":"fulfilled"}}'
 
 services:
 
