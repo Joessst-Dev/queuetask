@@ -69,6 +69,9 @@ func (d *Definition) Validate() error {
 		if s.Name == "" {
 			return fmt.Errorf("step[%d] name is required", i)
 		}
+		if strings.ContainsAny(s.Name, "/ ?#&%+") {
+			return fmt.Errorf("step %q name contains URL-unsafe characters (/, space, ?, #, &, %%, +)", s.Name)
+		}
 		if _, dup := names[s.Name]; dup {
 			return fmt.Errorf("duplicate step name %q", s.Name)
 		}

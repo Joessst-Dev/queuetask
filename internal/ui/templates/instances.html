@@ -1,16 +1,16 @@
 {{if not .}}
-<p class="empty">No instances yet. Start one via the API.</p>
+<p class="px-4 py-3 text-slate-500 text-sm">No instances yet. Start one via the API.</p>
 {{else}}
 {{range .}}
-<div class="instance-item"
+<div class="px-4 py-3 border-b border-slate-800 cursor-pointer hover:bg-slate-800/60 transition-colors"
      hx-get="/ui/instances/{{.ID}}"
      hx-target="#detail"
      hx-swap="innerHTML">
-  <div class="item-name">{{.WorkflowName}}</div>
-  <div class="item-meta">
-    <span class="badge {{.Status}}">{{.Status}}</span>
-    <span class="item-id">{{shortID .ID}}…</span>
-    <span class="item-time">{{.CreatedAt.Format "15:04:05"}}</span>
+  <div class="text-sm font-medium text-slate-200 mb-1.5">{{.WorkflowName}}</div>
+  <div class="flex items-center gap-2">
+    {{template "badge" .Status}}
+    <span class="font-mono text-xs text-slate-500">{{shortID .ID}}&#8230;</span>
+    <span class="text-xs text-slate-500 ml-auto">{{.CreatedAt.Format "15:04:05"}}</span>
   </div>
 </div>
 {{end}}
