@@ -87,6 +87,22 @@ services:
       timeout: 3s
       retries: 10
 
+  # ── queue-ti seeder ───────────────────────────────────────────────────────
+  # One-shot init container: registers consumer groups needed by the
+  # order-processing workflow before queuetask starts consuming.
+  seeder:
+    build:
+      context: ../queue-ti
+      dockerfile: tools/seeder/Dockerfile
+    command: ["-f", "/seed.json", "--admin-url", "http://queueti:8080", "--username", "admin"]
+    environment:
+      SEEDER_PASSWORD: secret
+    volumes:
+      - ./docker/seed.json:/seed.json:ro
+    depends_on:
+      queueti:
+        condition: service_healthy
+
   # ── queuetask workflow engine ──────────────────────────────────────────────
   # Build context is the parent directory so the Dockerfile can reach the
   # queue-ti sibling (required by go.mod replace directives).
@@ -110,6 +126,8 @@ services:
         condition: service_healthy
       queueti:
         condition: service_healthy
+      seeder:
+        condition: service_completed_successfully
 
 volumes:
   pgdata:

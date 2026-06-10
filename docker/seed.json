@@ -1,0 +1,8 @@
+{
+  "consumer_groups": [
+    {
+      "topic": "fulfillment-results",
+      "groups": ["queuetask-order-processing"]
+    }
+  ]
+}
