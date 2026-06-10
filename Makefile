@@ -3,7 +3,7 @@ BUILD_DIR  := ./bin
 MAIN       := ./cmd/server
 IMAGE      := queuetask
 
-.PHONY: build run test lint migrate-up migrate-down tidy docker-build
+.PHONY: build run test lint migrate-up migrate-down tidy docker-build css
 
 build:
 	go build -o $(BUILD_DIR)/$(BINARY) $(MAIN)
@@ -29,3 +29,8 @@ migrate-up:
 
 migrate-down:
 	go run $(MAIN) -migrate-only down
+
+# Regenerate embedded CSS after editing templates or ui.go.
+# Requires Node.js: npm install (run once).
+css:
+	npm run css

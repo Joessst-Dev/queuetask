@@ -1,6 +1,9 @@
 # Build output
 /bin/
 
+# Node (Tailwind CSS build tooling)
+node_modules/
+
 # Go
 *.test
 *.out

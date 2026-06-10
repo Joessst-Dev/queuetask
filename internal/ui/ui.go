@@ -21,6 +21,9 @@ import (
 //go:embed templates
 var templateFiles embed.FS
 
+//go:embed static/tailwind.css
+var tailwindCSS []byte
+
 type Handler struct {
 	engine *workflow.Engine
 	repo   *workflow.Repository
@@ -93,6 +96,11 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository) (*Handler, e
 
 func (h *Handler) RegisterRoutes(app *fiber.App) {
 	app.Get("/", h.Index)
+	app.Get("/ui/static/tailwind.css", func(c *fiber.Ctx) error {
+		c.Set("Content-Type", "text/css; charset=utf-8")
+		c.Set("Cache-Control", "public, max-age=31536000, immutable")
+		return c.Send(tailwindCSS)
+	})
 	g := app.Group("/ui")
 	g.Get("/instances", h.Instances)
 	g.Get("/instances/:id", h.Steps)

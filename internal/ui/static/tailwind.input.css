@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Scan all HTML templates */
+@source "../templates";
+
+/* Scan Go source for inline class strings (renderError, renderTriggered) */
+@source "../ui.go";

@@ -1,0 +1,11 @@
+{
+  "name": "queuetask-assets",
+  "private": true,
+  "scripts": {
+    "css": "tailwindcss -i internal/ui/static/tailwind.input.css -o internal/ui/static/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.0.0",
+    "tailwindcss": "^4.0.0"
+  }
+}
