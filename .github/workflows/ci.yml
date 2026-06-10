@@ -18,17 +18,6 @@ jobs:
       # go.mod has replace directives pointing to ../queue-ti — clone it as a sibling.
       - name: Clone queue-ti dependency
         run: git clone https://github.com/Joessst-Dev/queue-ti.git ../queue-ti
-        env:
-          # Set QUEUE_TI_TOKEN in repo secrets if queue-ti is private.
-          GIT_AUTH_TOKEN: ${{ secrets.QUEUE_TI_TOKEN }}
-        # Use token-based URL if the secret is set, otherwise assume public.
-        # The step is written to work for both cases via the conditional below.
-
-      - name: Authenticate queue-ti clone (if private)
-        if: ${{ secrets.QUEUE_TI_TOKEN != '' }}
-        run: |
-          git -C ../queue-ti remote set-url origin \
-            https://x-access-token:${{ secrets.QUEUE_TI_TOKEN }}@github.com/Joessst-Dev/queue-ti.git
 
       - uses: actions/setup-go@v5
         with:
