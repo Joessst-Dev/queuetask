@@ -106,6 +106,36 @@ func (h *Handler) ListSteps(c *fiber.Ctx) error {
 	return c.JSON(steps)
 }
 
+// WebhookStart starts a new instance for workflows that declare a webhook trigger.
+// The request body is used directly as the instance input.
+func (h *Handler) WebhookStart(c *fiber.Ctx) error {
+	name := c.Params("name")
+	def, ok := h.registry.Get(name)
+	if !ok {
+		return fiber.NewError(fiber.StatusNotFound, "workflow not found")
+	}
+	hasWebhook := false
+	for _, t := range def.Triggers {
+		if t.Type == workflow.InstanceTriggerWebhook {
+			hasWebhook = true
+			break
+		}
+	}
+	if !hasWebhook {
+		return fiber.NewError(fiber.StatusUnprocessableEntity, "workflow does not have a webhook trigger configured")
+	}
+
+	var input json.RawMessage
+	if len(c.Body()) > 0 {
+		input = c.Body()
+	}
+	inst, err := h.engine.StartInstance(c.Context(), name, input)
+	if err != nil {
+		return fiber.NewError(fiber.StatusUnprocessableEntity, err.Error())
+	}
+	return c.Status(fiber.StatusCreated).JSON(inst)
+}
+
 func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {

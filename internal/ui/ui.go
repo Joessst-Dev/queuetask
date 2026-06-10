@@ -25,9 +25,10 @@ var templateFiles embed.FS
 var tailwindCSS []byte
 
 type Handler struct {
-	engine *workflow.Engine
-	repo   *workflow.Repository
-	tmpl   *template.Template
+	engine   *workflow.Engine
+	repo     *workflow.Repository
+	registry *workflow.Registry
+	tmpl     *template.Template
 }
 
 type stepsData struct {
@@ -35,7 +36,7 @@ type stepsData struct {
 	Steps    []*workflow.StepExecution
 }
 
-func NewHandler(engine *workflow.Engine, repo *workflow.Repository) (*Handler, error) {
+func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"isWaitingManual": func(s workflow.StepStatus) bool {
 			return s == workflow.StatusWaitingManual
@@ -91,7 +92,7 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository) (*Handler, e
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{engine: engine, repo: repo, tmpl: tmpl}, nil
+	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl}, nil
 }
 
 func (h *Handler) RegisterRoutes(app *fiber.App) {
@@ -102,6 +103,8 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 		return c.Send(tailwindCSS)
 	})
 	g := app.Group("/ui")
+	g.Get("/workflows", h.Workflows)
+	g.Post("/workflows/:name/start", h.StartInstance)
 	g.Get("/instances", h.Instances)
 	g.Get("/instances/:id", h.Steps)
 	g.Post("/instances/:id/steps/:step/trigger", h.TriggerStep)
@@ -138,6 +141,25 @@ func (h *Handler) renderTriggered(c *fiber.Ctx, id uuid.UUID) error {
 
 func (h *Handler) Index(c *fiber.Ctx) error {
 	return h.render(c, "index.html", nil)
+}
+
+func (h *Handler) Workflows(c *fiber.Ctx) error {
+	return h.render(c, "workflows.html", h.registry.List())
+}
+
+func (h *Handler) StartInstance(c *fiber.Ctx) error {
+	name := c.Params("name")
+	inst, err := h.engine.StartInstance(c.Context(), name, nil)
+	if err != nil {
+		return h.renderError(c, fiber.StatusUnprocessableEntity, err.Error())
+	}
+	steps, err := h.repo.ListSteps(context.Background(), inst.ID)
+	if err != nil {
+		return h.renderTriggered(c, inst.ID)
+	}
+	// Tell the instances list to refresh immediately.
+	c.Set("HX-Trigger", "refreshInstances")
+	return h.render(c, "steps.html", stepsData{Instance: inst, Steps: steps})
 }
 
 func (h *Handler) Instances(c *fiber.Ctx) error {

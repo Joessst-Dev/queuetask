@@ -10,6 +10,7 @@ type Registry struct {
 	mu          sync.RWMutex
 	definitions map[string]*Definition
 	dir         string
+	hooks       []func([]*Definition)
 }
 
 func NewRegistry(dir string) *Registry {
@@ -17,6 +18,14 @@ func NewRegistry(dir string) *Registry {
 		definitions: make(map[string]*Definition),
 		dir:         dir,
 	}
+}
+
+// AddReloadHook registers a function that is called after every successful Load.
+// Hooks are called outside the registry lock with the freshly loaded definitions.
+func (r *Registry) AddReloadHook(fn func([]*Definition)) {
+	r.mu.Lock()
+	r.hooks = append(r.hooks, fn)
+	r.mu.Unlock()
 }
 
 func (r *Registry) Load() error {
@@ -38,9 +47,19 @@ func (r *Registry) Load() error {
 		loaded[def.Name] = def
 	}
 
+	defs := make([]*Definition, 0, len(loaded))
+	for _, d := range loaded {
+		defs = append(defs, d)
+	}
+
 	r.mu.Lock()
 	r.definitions = loaded
+	hooks := r.hooks
 	r.mu.Unlock()
+
+	for _, hook := range hooks {
+		hook(defs)
+	}
 	return nil
 }
 

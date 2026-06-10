@@ -52,9 +52,11 @@ func main() {
 
 	var pub publisher.Publisher = publisher.Noop{}
 	var poller *workflow.Poller
+	var qClient *queueti.Client
 
 	if cfg.QueueTi.Enabled {
-		qClient, err := buildQueueTiClient(context.Background(), cfg.QueueTi)
+		var err error
+		qClient, err = buildQueueTiClient(context.Background(), cfg.QueueTi)
 		if err != nil {
 			slog.Error("connecting to queue-ti", "error", err)
 			os.Exit(1)
@@ -81,9 +83,35 @@ func main() {
 		poller.SetEngine(engine)
 	}
 
+	// Cron scheduler — always active, no queue-ti dependency.
+	cronScheduler := workflow.NewCronScheduler(engine)
+	cronScheduler.Start()
+	defer cronScheduler.Stop()
+
+	// Instance poller — only when queue-ti is enabled.
+	var instancePoller *workflow.InstancePoller
+	if qClient != nil {
+		instancePoller = workflow.NewInstancePoller(qClient, engine)
+		defer instancePoller.Stop()
+	}
+
+	// Hook into registry reloads so schedulers stay in sync.
+	registry.AddReloadHook(func(defs []*workflow.Definition) {
+		cronScheduler.Sync(defs)
+		if instancePoller != nil {
+			instancePoller.Sync(defs)
+		}
+	})
+
+	// Initial sync with the already-loaded definitions.
+	cronScheduler.Sync(registry.List())
+	if instancePoller != nil {
+		instancePoller.Sync(registry.List())
+	}
+
 	handler := api.NewHandler(engine, registry, repo)
 
-	uiHandler, err := ui.NewHandler(engine, repo)
+	uiHandler, err := ui.NewHandler(engine, repo, registry)
 	if err != nil {
 		slog.Error("building UI handler", "error", err)
 		os.Exit(1)

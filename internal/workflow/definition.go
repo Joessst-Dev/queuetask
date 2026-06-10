@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/robfig/cron/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,11 +37,29 @@ const (
 	TriggerHTTP    TriggerType = "http"
 )
 
+type InstanceTriggerType string
+
+const (
+	InstanceTriggerCron    InstanceTriggerType = "cron"
+	InstanceTriggerWebhook InstanceTriggerType = "webhook"
+	InstanceTriggerQueueTi InstanceTriggerType = "queueti"
+)
+
+// WorkflowTrigger defines an automatic instance-creation trigger.
+type WorkflowTrigger struct {
+	Type          InstanceTriggerType `yaml:"type"`
+	Schedule      string              `yaml:"schedule"`        // cron: standard 5-field expression
+	Input         any                 `yaml:"input"`           // cron: static input marshalled to JSON
+	Topic         string              `yaml:"topic"`           // queueti: topic to consume
+	ConsumerGroup string              `yaml:"consumer_group"`  // queueti: consumer group name
+}
+
 type Definition struct {
-	Name        string       `yaml:"name"`
-	Version     int          `yaml:"version"`
-	Description string       `yaml:"description"`
-	Steps       []StepDef    `yaml:"steps"`
+	Name        string            `yaml:"name"`
+	Version     int               `yaml:"version"`
+	Description string            `yaml:"description"`
+	Triggers    []WorkflowTrigger `yaml:"triggers"`
+	Steps       []StepDef         `yaml:"steps"`
 }
 
 type HTTPDef struct {
@@ -60,10 +79,35 @@ type StepDef struct {
 	HTTP               *HTTPDef    `yaml:"http"`
 }
 
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
 func (d *Definition) Validate() error {
 	if d.Name == "" {
 		return fmt.Errorf("workflow name is required")
 	}
+
+	for i, t := range d.Triggers {
+		switch t.Type {
+		case InstanceTriggerCron:
+			if t.Schedule == "" {
+				return fmt.Errorf("trigger[%d]: cron trigger requires a schedule", i)
+			}
+			if _, err := cronParser.Parse(t.Schedule); err != nil {
+				return fmt.Errorf("trigger[%d]: invalid cron schedule %q: %w", i, t.Schedule, err)
+			}
+		case InstanceTriggerWebhook:
+			// no required fields
+		case InstanceTriggerQueueTi:
+			if t.Topic == "" {
+				return fmt.Errorf("trigger[%d]: queueti trigger requires topic", i)
+			}
+		case "":
+			return fmt.Errorf("trigger[%d]: type is required", i)
+		default:
+			return fmt.Errorf("trigger[%d]: unknown trigger type %q", i, t.Type)
+		}
+	}
+
 	names := make(map[string]struct{}, len(d.Steps))
 	for i, s := range d.Steps {
 		if s.Name == "" {

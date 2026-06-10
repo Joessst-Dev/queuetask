@@ -29,7 +29,7 @@ func newTestSetup() *testSetup {
 	registry := workflow.NewRegistry(testWorkflowDir)
 	Expect(registry.Load()).To(Succeed())
 	engine := workflow.NewEngine(repo, registry, publisher.Noop{}, nil)
-	h, err := ui.NewHandler(engine, repo)
+	h, err := ui.NewHandler(engine, repo, registry)
 	Expect(err).NotTo(HaveOccurred())
 	app := fiber.New()
 	h.RegisterRoutes(app)

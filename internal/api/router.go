@@ -11,6 +11,7 @@ func RegisterRoutes(app *fiber.App, h *Handler) {
 	v1.Get("/workflows/:name", h.GetWorkflow)
 	v1.Post("/workflows/reload", h.ReloadWorkflows)
 	v1.Post("/workflows/:name/instances", h.StartInstance)
+	v1.Post("/workflows/:name/webhook", h.WebhookStart)
 
 	v1.Get("/instances", h.ListInstances)
 	v1.Get("/instances/:id", h.GetInstance)
