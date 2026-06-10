@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # go.mod has replace directives pointing to ../queue-ti — clone it as a sibling.
+      - name: Clone queue-ti dependency
+        run: git clone https://github.com/Joessst-Dev/queue-ti.git ../queue-ti
+        env:
+          # Set QUEUE_TI_TOKEN in repo secrets if queue-ti is private.
+          GIT_AUTH_TOKEN: ${{ secrets.QUEUE_TI_TOKEN }}
+        # Use token-based URL if the secret is set, otherwise assume public.
+        # The step is written to work for both cases via the conditional below.
+
+      - name: Authenticate queue-ti clone (if private)
+        if: ${{ secrets.QUEUE_TI_TOKEN != '' }}
+        run: |
+          git -C ../queue-ti remote set-url origin \
+            https://x-access-token:${{ secrets.QUEUE_TI_TOKEN }}@github.com/Joessst-Dev/queue-ti.git
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -v -timeout 300s -race
+        env:
+          # Disable Ryuk cleanup container — avoids Docker-in-Docker permission issues on CI.
+          TESTCONTAINERS_RYUK_DISABLED: "true"
