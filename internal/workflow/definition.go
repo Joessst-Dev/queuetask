@@ -98,7 +98,7 @@ func (d *Definition) Validate() error {
 				if !validHTTPMethods[method] {
 					return fmt.Errorf("step %q http.method %q is not a recognized HTTP method", s.Name, s.HTTP.Method)
 				}
-				s.HTTP.Method = method
+				d.Steps[i].HTTP.Method = method
 			}
 		}
 	}

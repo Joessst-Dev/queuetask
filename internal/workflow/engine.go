@@ -20,31 +20,29 @@ const (
 	httpMaxResponseSize = 10 * 1024 * 1024 // 10 MiB
 )
 
+func mustParseCIDR(cidr string) *net.IPNet {
+	_, n, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic(fmt.Sprintf("invalid CIDR %q: %v", cidr, err))
+	}
+	return n
+}
+
 // blockedCIDRs is the set of IP ranges HTTP steps must not target.
 // NOTE: DNS rebinding (a hostname that resolves to a private IP) is not prevented here;
 // that requires a custom Dialer that re-checks post-resolution.
-var blockedCIDRs = func() []*net.IPNet {
-	cidrs := []string{
-		"127.0.0.0/8",    // IPv4 loopback
-		"::1/128",        // IPv6 loopback
-		"169.254.0.0/16", // link-local / AWS IMDS
-		"fe80::/10",      // IPv6 link-local
-		"10.0.0.0/8",     // RFC 1918
-		"172.16.0.0/12",  // RFC 1918
-		"192.168.0.0/16", // RFC 1918
-		"0.0.0.0/8",      // "this" network
-		"100.64.0.0/10",  // RFC 6598 CGNAT
-		"fc00::/7",       // IPv6 ULA
-	}
-	out := make([]*net.IPNet, 0, len(cidrs))
-	for _, cidr := range cidrs {
-		_, n, _ := net.ParseCIDR(cidr)
-		if n != nil {
-			out = append(out, n)
-		}
-	}
-	return out
-}()
+var blockedCIDRs = []*net.IPNet{
+	mustParseCIDR("127.0.0.0/8"),    // IPv4 loopback
+	mustParseCIDR("::1/128"),        // IPv6 loopback
+	mustParseCIDR("169.254.0.0/16"), // link-local / AWS IMDS
+	mustParseCIDR("fe80::/10"),      // IPv6 link-local
+	mustParseCIDR("10.0.0.0/8"),     // RFC 1918
+	mustParseCIDR("172.16.0.0/12"),  // RFC 1918
+	mustParseCIDR("192.168.0.0/16"), // RFC 1918
+	mustParseCIDR("0.0.0.0/8"),      // "this" network
+	mustParseCIDR("100.64.0.0/10"),  // RFC 6598 CGNAT
+	mustParseCIDR("fc00::/7"),       // IPv6 ULA
+}
 
 // checkSSRFHost returns an error when host is a literal IP address in a blocked range.
 func checkSSRFHost(host string) error {
@@ -291,16 +289,19 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseSize))
+	// Check status before buffering the full body to avoid reading large error payloads.
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, errBody)
+	}
+
+	// Read one byte past the limit so we can distinguish "exactly at limit" from "over limit".
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}
-	if int64(len(respBody)) >= httpMaxResponseSize {
+	if int64(len(respBody)) > httpMaxResponseSize {
 		return nil, fmt.Errorf("response body exceeded %d-byte limit", httpMaxResponseSize)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	if len(respBody) == 0 {
