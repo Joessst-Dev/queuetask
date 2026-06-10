@@ -1,7 +1,6 @@
 # Full queuetask + queue-ti stack.
 #
 # Prerequisites:
-#   - queue-ti cloned as a sibling directory: ../queue-ti
 #   - Docker Desktop (or Docker Engine) running
 #
 # Usage:
@@ -39,9 +38,7 @@ services:
 
   # ── queue-ti message broker ────────────────────────────────────────────────
   queueti:
-    build:
-      context: ../queue-ti/backend
-      dockerfile: Dockerfile
+    image: ghcr.io/joessst-dev/queue-ti:latest
     ports:
       - "127.0.0.1:50051:50051"
       - "127.0.0.1:8080:8080"
