@@ -13,6 +13,7 @@ const (
 	TriggerManual  TriggerType = "manual"
 	TriggerAuto    TriggerType = "auto"
 	TriggerQueueTi TriggerType = "queueti"
+	TriggerHTTP    TriggerType = "http"
 )
 
 type Definition struct {
@@ -20,6 +21,12 @@ type Definition struct {
 	Version     int          `yaml:"version"`
 	Description string       `yaml:"description"`
 	Steps       []StepDef    `yaml:"steps"`
+}
+
+type HTTPDef struct {
+	Method  string            `yaml:"method"`
+	URL     string            `yaml:"url"`
+	Headers map[string]string `yaml:"headers"`
 }
 
 type StepDef struct {
@@ -30,6 +37,7 @@ type StepDef struct {
 	PublishToTopic     string      `yaml:"publish_to_topic"`
 	QueueTiTopic       string      `yaml:"queueti_topic"`
 	QueueTiConsumerGrp string      `yaml:"queueti_consumer_group"`
+	HTTP               *HTTPDef    `yaml:"http"`
 }
 
 func (d *Definition) Validate() error {
@@ -47,7 +55,7 @@ func (d *Definition) Validate() error {
 		names[s.Name] = struct{}{}
 
 		switch s.Trigger {
-		case TriggerManual, TriggerAuto, TriggerQueueTi:
+		case TriggerManual, TriggerAuto, TriggerQueueTi, TriggerHTTP:
 		case "":
 			d.Steps[i].Trigger = TriggerManual
 		default:
@@ -56,6 +64,10 @@ func (d *Definition) Validate() error {
 
 		if s.Trigger == TriggerQueueTi && s.QueueTiTopic == "" {
 			return fmt.Errorf("step %q with trigger=queueti requires queueti_topic", s.Name)
+		}
+
+		if s.Trigger == TriggerHTTP && (s.HTTP == nil || s.HTTP.URL == "") {
+			return fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
 		}
 	}
 

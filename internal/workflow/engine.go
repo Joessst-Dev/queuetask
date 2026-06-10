@@ -1,24 +1,43 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 )
 
+// HTTPDoer is the subset of *http.Client used by the engine, allowing injection in tests.
+type HTTPDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 type Engine struct {
-	repo      *Repository
-	registry  *Registry
-	publisher publisher.Publisher
-	poller    *Poller
+	repo       *Repository
+	registry   *Registry
+	publisher  publisher.Publisher
+	poller     *Poller
+	httpClient HTTPDoer
 }
 
 func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller) *Engine {
-	return &Engine{repo: repo, registry: registry, publisher: pub, poller: poller}
+	return &Engine{
+		repo:       repo,
+		registry:   registry,
+		publisher:  pub,
+		poller:     poller,
+		httpClient: http.DefaultClient,
+	}
+}
+
+func (e *Engine) SetHTTPClient(c HTTPDoer) {
+	e.httpClient = c
 }
 
 // StartInstance creates a new workflow instance and kicks off the first steps.
@@ -147,10 +166,74 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			if e.poller != nil {
 				e.poller.Watch(instanceID, s)
 			}
+
+		case TriggerHTTP:
+			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusRunning, mergedInput, ""); err != nil {
+				return err
+			}
+			output, httpErr := e.executeHTTPStep(ctx, s, mergedInput)
+			if httpErr != nil {
+				if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusFailed, nil, httpErr.Error()); err != nil {
+					return err
+				}
+			} else {
+				if err := e.completeStep(ctx, instanceID, s.StepName, output); err != nil {
+					return err
+				}
+			}
+			return e.advance(ctx, instanceID)
 		}
 	}
 
 	return nil
+}
+
+func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body json.RawMessage) (json.RawMessage, error) {
+	method := step.HTTPMethod
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	var reqBody io.Reader
+	if len(body) > 0 {
+		reqBody = bytes.NewReader(body)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, step.HTTPURL, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("building request: %w", err)
+	}
+
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range step.HTTPHeaders {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	if len(respBody) == 0 {
+		return nil, nil
+	}
+	if json.Valid(respBody) {
+		return json.RawMessage(respBody), nil
+	}
+	wrapped, _ := json.Marshal(map[string]string{"body": string(respBody)})
+	return json.RawMessage(wrapped), nil
 }
 
 func depsCompleted(deps []string, completed map[string]json.RawMessage) bool {
