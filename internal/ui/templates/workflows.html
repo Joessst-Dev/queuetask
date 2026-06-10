@@ -7,7 +7,7 @@
   {{if .Triggers}}
   <div class="text-xs text-slate-500">{{len .Triggers}} trigger{{if gt (len .Triggers) 1}}s{{end}}</div>
   {{end}}
-  <button class="btn-trigger w-full py-1.5 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors cursor-pointer border-0"
+  <button class="btn-trigger px-3 py-1 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors cursor-pointer border-0 self-start"
           hx-post="/ui/workflows/{{.Name}}/start"
           hx-target="#detail"
           hx-swap="innerHTML">
