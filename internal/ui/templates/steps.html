@@ -1,0 +1,43 @@
+<div class="detail-header">
+  <div class="detail-title">
+    {{.Instance.WorkflowName}}
+    <span class="badge {{.Instance.Status}}">{{.Instance.Status}}</span>
+  </div>
+  <div class="detail-id">{{.Instance.ID}}</div>
+</div>
+
+{{if not .Steps}}
+<p class="empty">No steps found.</p>
+{{else}}
+<table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Step</th>
+      <th>Status</th>
+      <th>Details / Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Steps}}
+    <tr>
+      <td class="step-order">{{.StepOrder}}</td>
+      <td class="step-name">{{.StepName}}</td>
+      <td><span class="badge {{.Status}}">{{.Status}}</span></td>
+      <td>
+        {{if isFailed .Status}}
+          <div class="error-msg">{{.ErrorMessage}}</div>
+        {{else if isWaitingManual .Status}}
+          <button class="btn-trigger"
+                  hx-post="/ui/instances/{{.InstanceID}}/steps/{{.StepName}}/trigger"
+                  hx-target="#detail"
+                  hx-swap="innerHTML">
+            Trigger
+          </button>
+        {{end}}
+      </td>
+    </tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

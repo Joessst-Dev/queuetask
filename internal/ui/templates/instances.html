@@ -1,0 +1,17 @@
+{{if not .}}
+<p class="empty">No instances yet. Start one via the API.</p>
+{{else}}
+{{range .}}
+<div class="instance-item"
+     hx-get="/ui/instances/{{.ID}}"
+     hx-target="#detail"
+     hx-swap="innerHTML">
+  <div class="item-name">{{.WorkflowName}}</div>
+  <div class="item-meta">
+    <span class="badge {{.Status}}">{{.Status}}</span>
+    <span class="item-id">{{shortID .ID}}…</span>
+    <span class="item-time">{{.CreatedAt.Format "15:04:05"}}</span>
+  </div>
+</div>
+{{end}}
+{{end}}

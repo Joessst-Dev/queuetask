@@ -18,6 +18,7 @@ import (
 	"github.com/Joessst-Dev/queuetask/internal/config"
 	"github.com/Joessst-Dev/queuetask/internal/db"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
+	"github.com/Joessst-Dev/queuetask/internal/ui"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
@@ -74,6 +75,11 @@ func main() {
 
 	handler := api.NewHandler(engine, registry, repo)
 
+	uiHandler, err := ui.NewHandler(engine, repo)
+	if err != nil {
+		log.Fatalf("building UI handler: %v", err)
+	}
+
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
@@ -86,6 +92,7 @@ func main() {
 	app.Use(recover.New())
 	app.Use(logger.New())
 
+	uiHandler.RegisterRoutes(app)
 	api.RegisterRoutes(app, handler)
 
 	quit := make(chan os.Signal, 1)
