@@ -36,9 +36,14 @@ type stepsData struct {
 	Steps    []*workflow.StepExecution
 }
 
+type canvasStep struct {
+	*workflow.StepExecution
+	Description string
+}
+
 type canvasItem struct {
 	Instance *workflow.Instance
-	Steps    []*workflow.StepExecution
+	Steps    []canvasStep
 }
 
 func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
@@ -172,7 +177,20 @@ func (h *Handler) Canvas(c *fiber.Ctx) error {
 	}
 	items := make([]canvasItem, 0, len(instances))
 	for _, inst := range instances {
-		steps, _ := h.repo.ListSteps(c.Context(), inst.ID)
+		rawSteps, _ := h.repo.ListSteps(c.Context(), inst.ID)
+
+		// Merge descriptions from the workflow definition (not stored in DB).
+		descs := map[string]string{}
+		if def, ok := h.registry.Get(inst.WorkflowName); ok {
+			for _, s := range def.Steps {
+				descs[s.Name] = s.Description
+			}
+		}
+
+		steps := make([]canvasStep, len(rawSteps))
+		for i, s := range rawSteps {
+			steps[i] = canvasStep{StepExecution: s, Description: descs[s.StepName]}
+		}
 		items = append(items, canvasItem{Instance: inst, Steps: steps})
 	}
 	return h.render(c, "canvas.html", items)

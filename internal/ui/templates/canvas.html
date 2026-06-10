@@ -13,33 +13,49 @@
     <p class="text-slate-600 text-xs mt-1">Start a workflow from the sidebar.</p>
   </div>
 {{else}}
-  <div class="grid grid-cols-2 xl:grid-cols-3 gap-4">
+  <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
     {{range .}}
-    <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg p-4 cursor-pointer transition-colors group"
-         hx-get="/ui/instances/{{.Instance.ID}}"
-         hx-target="#detail"
-         hx-swap="innerHTML">
+    <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg overflow-hidden transition-colors">
 
-      <div class="flex items-start justify-between gap-2 mb-3">
+      {{/* ── Card header ── */}}
+      <div class="px-4 py-3 border-b border-slate-800 flex items-start justify-between gap-2 cursor-pointer group"
+           hx-get="/ui/instances/{{.Instance.ID}}"
+           hx-target="#detail"
+           hx-swap="innerHTML">
         <div class="min-w-0">
           <div class="text-sm font-semibold text-slate-100 truncate group-hover:text-white transition-colors">{{.Instance.WorkflowName}}</div>
-          <div class="font-mono text-xs text-slate-500 mt-0.5">{{shortID .Instance.ID}}&#8230;</div>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span class="font-mono text-xs text-slate-500">{{shortID .Instance.ID}}&#8230;</span>
+            <span class="text-xs text-slate-600">{{.Instance.CreatedAt.Format "Jan 2 · 15:04:05"}}</span>
+          </div>
         </div>
         {{template "badge" .Instance.Status}}
       </div>
 
+      {{/* ── Steps ── */}}
       {{if .Steps}}
-      <div class="flex items-center mt-3">
-        {{range $i, $s := .Steps}}
-        {{if $i}}<div class="flex-1 h-px bg-slate-800 mx-1 mb-1.5 min-w-0"></div>{{end}}
-        <div class="shrink-0 flex flex-col items-center gap-1">
-          <div class="w-2.5 h-2.5 rounded-full {{stepDotClasses $s.Status}}" title="{{$s.StepName}}: {{$s.Status}}"></div>
+      <div class="divide-y divide-slate-800/60">
+        {{range .Steps}}
+        <div class="px-4 py-2.5">
+          <div class="flex items-center gap-2.5">
+            <div class="w-2 h-2 rounded-full shrink-0 {{stepDotClasses .Status}}"></div>
+            <span class="text-xs font-medium text-slate-300 truncate">{{.StepName}}</span>
+            <div class="ml-auto shrink-0">{{template "badge" .Status}}</div>
+          </div>
+          {{if .Description}}
+          <p class="text-xs text-slate-500 mt-1 ml-5 leading-relaxed">{{.Description}}</p>
+          {{end}}
+          {{if isFailed .Status}}
+          <details class="mt-1.5 ml-5">
+            <summary class="text-xs text-red-400 hover:text-red-300 cursor-pointer select-none">View error</summary>
+            <div class="mt-1.5 px-3 py-2 bg-red-950/40 border border-red-500/20 rounded text-red-300 font-mono text-xs whitespace-pre-wrap break-all leading-relaxed">{{.ErrorMessage}}</div>
+          </details>
+          {{end}}
         </div>
         {{end}}
       </div>
       {{end}}
 
-      <div class="text-xs text-slate-600 mt-3">{{.Instance.CreatedAt.Format "Jan 2 · 15:04:05"}}</div>
     </div>
     {{end}}
   </div>
