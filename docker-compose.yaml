@@ -81,6 +81,12 @@ services:
     volumes:
       # Override the embedded config.yaml with compose-specific settings.
       - ./docker/config.yaml:/app/config.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO /dev/null http://localhost:8081/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy

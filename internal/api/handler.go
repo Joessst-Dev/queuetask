@@ -20,7 +20,16 @@ func NewHandler(engine *workflow.Engine, registry *workflow.Registry, repo *work
 }
 
 func (h *Handler) Health(c *fiber.Ctx) error {
-	return c.JSON(fiber.Map{"status": "ok"})
+	if err := h.repo.Ping(c.Context()); err != nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{
+			"status": "degraded",
+			"checks": fiber.Map{"database": err.Error()},
+		})
+	}
+	return c.JSON(fiber.Map{
+		"status": "ok",
+		"checks": fiber.Map{"database": "ok"},
+	})
 }
 
 func (h *Handler) ListWorkflows(c *fiber.Ctx) error {

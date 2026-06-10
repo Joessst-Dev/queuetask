@@ -49,15 +49,19 @@ var _ = Describe("Handler", func() {
 	})
 
 	Describe("GET /health", func() {
-		It("returns 200 with status ok", func() {
+		It("returns 200 with status ok and database check when DB is reachable", func() {
 			req := httptest.NewRequest(http.MethodGet, "/health", nil)
 			resp, err := app.Test(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			var body map[string]string
+			var body struct {
+				Status string            `json:"status"`
+				Checks map[string]string `json:"checks"`
+			}
 			Expect(json.NewDecoder(resp.Body).Decode(&body)).To(Succeed())
-			Expect(body["status"]).To(Equal("ok"))
+			Expect(body.Status).To(Equal("ok"))
+			Expect(body.Checks["database"]).To(Equal("ok"))
 		})
 	})
 

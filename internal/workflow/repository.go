@@ -72,6 +72,10 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
+func (r *Repository) Ping(ctx context.Context) error {
+	return r.db.PingContext(ctx)
+}
+
 func (r *Repository) CreateInstance(ctx context.Context, workflowName string, input json.RawMessage) (*Instance, error) {
 	id := uuid.New()
 	_, err := r.db.ExecContext(ctx,
@@ -260,7 +264,7 @@ func nullStr(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: true}
 }
 
-func nullBytes(b []byte) interface{} {
+func nullBytes(b []byte) any {
 	if len(b) == 0 {
 		return nil
 	}
