@@ -1,0 +1,94 @@
+# Full queuetask + queue-ti stack.
+#
+# Prerequisites:
+#   - queue-ti cloned as a sibling directory: ../queue-ti
+#   - Docker Desktop (or Docker Engine) running
+#
+# Usage:
+#   docker compose up --build
+#
+# Endpoints after startup:
+#   queuetask UI & API  →  http://localhost:8081
+#   queue-ti admin API  →  http://localhost:8080
+#   queue-ti gRPC       →  localhost:50051
+#
+# queue-ti credentials: admin / secret
+#
+# The order-processing workflow is loaded automatically.
+# Start an instance with:
+#   curl -X POST http://localhost:8081/api/v1/workflows/order-processing/instances
+# Then visit http://localhost:8081 to watch it progress.
+
+services:
+
+  # ── Shared database ────────────────────────────────────────────────────────
+  # queue-ti uses the 'public' schema; queuetask uses its own 'queuetask' schema.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: queueti
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── queue-ti message broker ────────────────────────────────────────────────
+  queueti:
+    build:
+      context: ../queue-ti/backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:50051:50051"
+      - "127.0.0.1:8080:8080"
+    environment:
+      QUEUETI_DB_HOST: postgres
+      QUEUETI_DB_PORT: "5432"
+      QUEUETI_DB_USER: postgres
+      QUEUETI_DB_PASSWORD: postgres
+      QUEUETI_DB_NAME: queueti
+      QUEUETI_DB_SSLMODE: disable
+      QUEUETI_SERVER_PORT: "50051"
+      QUEUETI_SERVER_HTTP_PORT: "8080"
+      QUEUETI_AUTH_ENABLED: "true"
+      QUEUETI_AUTH_USERNAME: admin
+      QUEUETI_AUTH_PASSWORD: secret
+      # Change this to a long random string in any non-local environment.
+      QUEUETI_AUTH_JWT_SECRET: "change-me-in-production-use-a-long-random-string"
+      QUEUETI_LOG_LEVEL: info
+      # Disable mandatory topic pre-registration so the example workflow works
+      # without extra setup steps.
+      QUEUETI_QUEUE_REQUIRE_TOPIC_REGISTRATION: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/healthcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── queuetask workflow engine ──────────────────────────────────────────────
+  # Build context is the parent directory so the Dockerfile can reach the
+  # queue-ti sibling (required by go.mod replace directives).
+  queuetask:
+    build:
+      context: ..
+      dockerfile: queuetask/Dockerfile
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      # Override the embedded config.yaml with compose-specific settings.
+      - ./docker/config.yaml:/app/config.yaml:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      queueti:
+        condition: service_healthy
+
+volumes:
+  pgdata:
