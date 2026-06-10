@@ -4,9 +4,28 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+var validHTTPMethods = map[string]bool{
+	"GET": true, "POST": true, "PUT": true, "PATCH": true,
+	"DELETE": true, "HEAD": true, "OPTIONS": true,
+}
+
+// validateHTTPURL checks that a URL has an http/https scheme and a non-empty host.
+// Private/loopback IP ranges are blocked at execution time by the engine.
+func validateHTTPURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("must use http or https scheme")
+	}
+	if u.Hostname() == "" {
+		return fmt.Errorf("missing host")
+	}
+	return nil
+}
 
 type TriggerType string
 
@@ -71,9 +90,15 @@ func (d *Definition) Validate() error {
 			if s.HTTP == nil || s.HTTP.URL == "" {
 				return fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
 			}
-			u, err := url.Parse(s.HTTP.URL)
-			if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-				return fmt.Errorf("step %q http.url must use http or https scheme", s.Name)
+			if err := validateHTTPURL(s.HTTP.URL); err != nil {
+				return fmt.Errorf("step %q http.url: %w", s.Name, err)
+			}
+			if s.HTTP.Method != "" {
+				method := strings.ToUpper(s.HTTP.Method)
+				if !validHTTPMethods[method] {
+					return fmt.Errorf("step %q http.method %q is not a recognized HTTP method", s.Name, s.HTTP.Method)
+				}
+				s.HTTP.Method = method
 			}
 		}
 	}

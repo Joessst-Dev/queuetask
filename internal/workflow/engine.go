@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"time"
 
@@ -19,31 +20,86 @@ const (
 	httpMaxResponseSize = 10 * 1024 * 1024 // 10 MiB
 )
 
+// blockedCIDRs is the set of IP ranges HTTP steps must not target.
+// NOTE: DNS rebinding (a hostname that resolves to a private IP) is not prevented here;
+// that requires a custom Dialer that re-checks post-resolution.
+var blockedCIDRs = func() []*net.IPNet {
+	cidrs := []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"::1/128",        // IPv6 loopback
+		"169.254.0.0/16", // link-local / AWS IMDS
+		"fe80::/10",      // IPv6 link-local
+		"10.0.0.0/8",     // RFC 1918
+		"172.16.0.0/12",  // RFC 1918
+		"192.168.0.0/16", // RFC 1918
+		"0.0.0.0/8",      // "this" network
+		"100.64.0.0/10",  // RFC 6598 CGNAT
+		"fc00::/7",       // IPv6 ULA
+	}
+	out := make([]*net.IPNet, 0, len(cidrs))
+	for _, cidr := range cidrs {
+		_, n, _ := net.ParseCIDR(cidr)
+		if n != nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}()
+
+// checkSSRFHost returns an error when host is a literal IP address in a blocked range.
+func checkSSRFHost(host string) error {
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil // hostname — DNS rebinding is a known limitation
+	}
+	for _, cidr := range blockedCIDRs {
+		if cidr.Contains(ip) {
+			return fmt.Errorf("host %s is in a blocked network range", host)
+		}
+	}
+	return nil
+}
+
+func ssrfRedirectCheck(req *http.Request, _ []*http.Request) error {
+	if err := checkSSRFHost(req.URL.Hostname()); err != nil {
+		return fmt.Errorf("redirect blocked: %w", err)
+	}
+	return nil
+}
+
 // HTTPDoer is the subset of *http.Client used by the engine, allowing injection in tests.
 type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
 type Engine struct {
-	repo       *Repository
-	registry   *Registry
-	publisher  publisher.Publisher
-	poller     *Poller
-	httpClient HTTPDoer
+	repo        *Repository
+	registry    *Registry
+	publisher   publisher.Publisher
+	poller      *Poller
+	httpClient  HTTPDoer
+	ssrfEnabled bool
 }
 
 func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller) *Engine {
 	return &Engine{
-		repo:       repo,
-		registry:   registry,
-		publisher:  pub,
-		poller:     poller,
-		httpClient: &http.Client{Timeout: httpDefaultTimeout},
+		repo:      repo,
+		registry:  registry,
+		publisher: pub,
+		poller:    poller,
+		httpClient: &http.Client{
+			Timeout:       httpDefaultTimeout,
+			CheckRedirect: ssrfRedirectCheck,
+		},
+		ssrfEnabled: true,
 	}
 }
 
+// SetHTTPClient replaces the HTTP client used for http-trigger steps.
+// Calling this disables the built-in SSRF filter, so it should only be used in tests.
 func (e *Engine) SetHTTPClient(c HTTPDoer) {
 	e.httpClient = c
+	e.ssrfEnabled = false
 }
 
 // StartInstance creates a new workflow instance and kicks off the first steps.
@@ -179,13 +235,16 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			}
 			output, httpErr := e.executeHTTPStep(ctx, s, mergedInput)
 			if httpErr != nil {
-				if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusFailed, nil, httpErr.Error()); err != nil {
+				// Use a detached context: the inbound ctx may already be cancelled
+				// (e.g. client disconnect), which would prevent marking the step failed.
+				cleanupCtx := context.Background()
+				if err := e.repo.UpdateStepStatus(cleanupCtx, instanceID, s.StepName, StatusFailed, nil, httpErr.Error()); err != nil {
 					return err
 				}
-			} else {
-				if err := e.completeStep(ctx, instanceID, s.StepName, output); err != nil {
-					return err
-				}
+				return e.advance(cleanupCtx, instanceID)
+			}
+			if err := e.completeStep(ctx, instanceID, s.StepName, output); err != nil {
+				return err
 			}
 			return e.advance(ctx, instanceID)
 		}
@@ -212,6 +271,13 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 
+	// SSRF pre-flight: block literal private/loopback IP targets.
+	if e.ssrfEnabled {
+		if err := checkSSRFHost(req.URL.Hostname()); err != nil {
+			return nil, fmt.Errorf("SSRF blocked: %w", err)
+		}
+	}
+
 	if bodyAllowed && len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -228,6 +294,9 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	if int64(len(respBody)) >= httpMaxResponseSize {
+		return nil, fmt.Errorf("response body exceeded %d-byte limit", httpMaxResponseSize)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {

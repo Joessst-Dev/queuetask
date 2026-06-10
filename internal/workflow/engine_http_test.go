@@ -3,6 +3,7 @@ package workflow_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,11 @@ import (
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
+
+// alwaysFailDoer is a test double that returns a fixed error from every Do call.
+type alwaysFailDoer struct{ err error }
+
+func (d *alwaysFailDoer) Do(_ *http.Request) (*http.Response, error) { return nil, d.err }
 
 var _ = Describe("Engine — HTTP trigger", func() {
 	var (
@@ -65,6 +71,7 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client()) // bypass SSRF for localhost test server
 
 			inst, err := engine.StartInstance(ctx, "http-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -100,6 +107,7 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
 
 			inst, err := engine.StartInstance(ctx, "http-body-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -132,10 +140,10 @@ steps:
         Authorization: "Bearer secret-token"
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
 
-			inst, err := engine.StartInstance(ctx, "http-headers-wf", nil)
+			_, err := engine.StartInstance(ctx, "http-headers-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
-			_ = inst
 
 			Expect(receivedAuth).To(Equal("Bearer secret-token"))
 		})
@@ -156,6 +164,8 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
 			inst, err := engine.StartInstance(ctx, "http-text-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -181,6 +191,8 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
 			inst, err := engine.StartInstance(ctx, "http-fail-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -194,17 +206,67 @@ steps:
 			Expect(updated.Status).To(Equal(workflow.InstanceFailed))
 		})
 
-		It("marks the step as failed when the server is unreachable", func() {
+		It("marks the step as failed when the HTTP call returns a network error", func() {
 			yaml := `
-name: http-unreachable-wf
+name: http-neterr-wf
 steps:
   - name: call-api
     trigger: http
     http:
-      url: http://localhost:1
+      url: https://example.com/api
 `
 			engine, _ := makeEngine(yaml)
-			inst, err := engine.StartInstance(ctx, "http-unreachable-wf", nil)
+			engine.SetHTTPClient(&alwaysFailDoer{err: errors.New("connection refused")})
+
+			inst, err := engine.StartInstance(ctx, "http-neterr-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			steps, err := repo.ListSteps(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(steps[0].Status).To(Equal(workflow.StatusFailed))
+			Expect(steps[0].ErrorMessage).To(ContainSubstring("connection refused"))
+		})
+	})
+
+	Describe("SSRF protection", func() {
+		It("blocks requests to private IP ranges at execution time", func() {
+			// The default engine (no SetHTTPClient) has ssrfEnabled=true.
+			// 10.0.0.1 passes Validate() (http scheme, non-empty host) but is blocked at runtime.
+			yaml := `
+name: http-ssrf-wf
+steps:
+  - name: call-api
+    trigger: http
+    http:
+      url: http://10.0.0.1/api
+`
+			engine, _ := makeEngine(yaml) // default client — SSRF enabled
+
+			inst, err := engine.StartInstance(ctx, "http-ssrf-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			steps, err := repo.ListSteps(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(steps[0].Status).To(Equal(workflow.StatusFailed))
+			Expect(steps[0].ErrorMessage).To(ContainSubstring("blocked"))
+
+			updated, err := repo.GetInstance(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(updated.Status).To(Equal(workflow.InstanceFailed))
+		})
+
+		It("blocks the AWS IMDS address", func() {
+			yaml := `
+name: http-imds-wf
+steps:
+  - name: steal-creds
+    trigger: http
+    http:
+      url: http://169.254.169.254/latest/meta-data/
+`
+			engine, _ := makeEngine(yaml)
+
+			inst, err := engine.StartInstance(ctx, "http-imds-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			steps, err := repo.ListSteps(ctx, inst.ID)
@@ -238,6 +300,8 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
 			inst, err := engine.StartInstance(ctx, "http-get-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -249,14 +313,15 @@ steps:
 	})
 
 	Describe("response size limit", func() {
-		It("truncates a response larger than httpMaxResponseSize and still succeeds if valid JSON prefix", func() {
-			// Send exactly at the limit boundary — a response that is valid JSON and
-			// fits within the cap should be returned verbatim.
+		It("fails the step when the response exceeds httpMaxResponseSize", func() {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Type", "application/octet-stream")
 				w.WriteHeader(http.StatusOK)
-				// Write a response well under the 10 MiB cap
-				w.Write([]byte(`{"ok":true}`))
+				// Write slightly more than 10 MiB
+				chunk := make([]byte, 1024)
+				for i := 0; i < 10*1024+1; i++ {
+					w.Write(chunk)
+				}
 			}))
 			DeferCleanup(srv.Close)
 
@@ -269,7 +334,37 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
 			inst, err := engine.StartInstance(ctx, "http-size-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			steps, err := repo.ListSteps(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(steps[0].Status).To(Equal(workflow.StatusFailed))
+			Expect(steps[0].ErrorMessage).To(ContainSubstring("limit"))
+		})
+
+		It("succeeds for a response well under the size cap", func() {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-smallsize-wf
+steps:
+  - name: call-api
+    trigger: http
+    http:
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
+			inst, err := engine.StartInstance(ctx, "http-smallsize-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			steps, err := repo.ListSteps(ctx, inst.ID)
@@ -297,11 +392,10 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
-			engine.SetHTTPClient(srv.Client()) // use the test server's client
+			engine.SetHTTPClient(srv.Client())
 
-			inst, err := engine.StartInstance(ctx, "http-inject-wf", nil)
+			_, err := engine.StartInstance(ctx, "http-inject-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
-			_ = inst
 
 			Expect(called).To(BeTrue())
 		})
@@ -356,6 +450,43 @@ steps:
 			}
 			Expect(def.Validate()).To(MatchError(ContainSubstring("http or https scheme")))
 		})
+
+		It("rejects a URL with no host (e.g. http://)", func() {
+			def := &workflow.Definition{
+				Name: "wf",
+				Steps: []workflow.StepDef{{
+					Name:    "s",
+					Trigger: workflow.TriggerHTTP,
+					HTTP:    &workflow.HTTPDef{URL: "http://"},
+				}},
+			}
+			Expect(def.Validate()).To(MatchError(ContainSubstring("missing host")))
+		})
+
+		It("rejects an invalid HTTP method", func() {
+			def := &workflow.Definition{
+				Name: "wf",
+				Steps: []workflow.StepDef{{
+					Name:    "s",
+					Trigger: workflow.TriggerHTTP,
+					HTTP:    &workflow.HTTPDef{URL: "https://example.com", Method: "INVALID"},
+				}},
+			}
+			Expect(def.Validate()).To(MatchError(ContainSubstring("not a recognized HTTP method")))
+		})
+
+		It("normalizes a lowercase method to uppercase", func() {
+			def := &workflow.Definition{
+				Name: "wf",
+				Steps: []workflow.StepDef{{
+					Name:    "s",
+					Trigger: workflow.TriggerHTTP,
+					HTTP:    &workflow.HTTPDef{URL: "https://example.com", Method: "post"},
+				}},
+			}
+			Expect(def.Validate()).To(Succeed())
+			Expect(def.Steps[0].HTTP.Method).To(Equal("POST"))
+		})
 	})
 
 	Describe("default method", func() {
@@ -377,9 +508,10 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
-			inst, err := engine.StartInstance(ctx, "http-default-method-wf", nil)
+			engine.SetHTTPClient(srv.Client())
+
+			_, err := engine.StartInstance(ctx, "http-default-method-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
-			_ = inst
 
 			Expect(receivedMethod).To(Equal(http.MethodPost))
 		})
@@ -405,6 +537,8 @@ steps:
       url: ` + srv.URL + `
 `
 			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client())
+
 			inst, err := engine.StartInstance(ctx, "http-ct-wf", nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -413,5 +547,4 @@ steps:
 			Expect(receivedCT).To(ContainSubstring("application/json"))
 		})
 	})
-
 })
