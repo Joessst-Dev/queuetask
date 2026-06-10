@@ -1,0 +1,54 @@
+name: triggers-example
+version: 1
+description: >
+  Demonstrates all three automatic instance-creation trigger types.
+  Each trigger starts a fresh instance of this workflow independently.
+
+# ── Instance triggers ──────────────────────────────────────────────────────
+#
+# Three ways a new instance can be created automatically:
+#
+#   cron    — starts an instance on a schedule (standard 5-field cron).
+#             The 'input' map is passed as the instance input.
+#
+#   webhook — starts an instance when POST /api/v1/workflows/triggers-example/webhook
+#             is called. The request body becomes the instance input.
+#             curl -X POST http://localhost:8081/api/v1/workflows/triggers-example/webhook \
+#               -H 'Content-Type: application/json' \
+#               -d '{"source":"my-system","ref":"abc123"}'
+#
+#   queueti — starts an instance when a message arrives on the configured
+#             topic. The message payload becomes the instance input.
+#             Publish a message (with TOKEN from queue-ti login):
+#             curl -X POST http://localhost:8080/api/messages \
+#               -H "Authorization: Bearer $TOKEN" \
+#               -H 'Content-Type: application/json' \
+#               -d '{"topic":"trigger-events","payload":"{\"source\":\"queue-ti\"}"}'
+
+triggers:
+  - type: cron
+    schedule: "*/5 * * * *"   # every 5 minutes
+    input:
+      source: scheduled
+
+  - type: webhook              # POST /api/v1/workflows/triggers-example/webhook
+
+  - type: queueti
+    topic: trigger-events
+    consumer_group: queuetask-triggers-example
+
+# ── Steps ─────────────────────────────────────────────────────────────────
+steps:
+  - name: process
+    description: "Auto-processes the incoming trigger payload"
+    trigger: auto
+
+  - name: review
+    description: "Manual review of the processed result"
+    trigger: manual
+    depends_on: [process]
+
+  - name: complete
+    description: "Auto-completes after review is done"
+    trigger: auto
+    depends_on: [review]

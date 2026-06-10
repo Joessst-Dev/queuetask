@@ -3,6 +3,10 @@
     {
       "topic": "fulfillment-results",
       "groups": ["queuetask-order-processing"]
+    },
+    {
+      "topic": "trigger-events",
+      "groups": ["queuetask-triggers-example"]
     }
   ]
 }
