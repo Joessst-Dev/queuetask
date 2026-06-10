@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 
 	queueti "github.com/Joessst-Dev/queue-ti/clients/go-client"
@@ -78,14 +78,14 @@ func (p *Poller) Watch(instanceID uuid.UUID, step *StepExecution) {
 			})
 
 			if err := p.engine.TriggerStep(msgCtx, instanceID, step.StepName, payload); err != nil {
-				log.Printf("warn: poller trigger failed for %s/%s: %v", instanceID, step.StepName, err)
+				slog.Warn("poller trigger failed", "instance_id", instanceID, "step", step.StepName, "error", err)
 				return err // Nack so the message is retried
 			}
 			return nil // Ack
 		})
 
 		if err != nil && ctx.Err() == nil {
-			log.Printf("warn: consumer for %s/%s exited with error: %v", instanceID, step.StepName, err)
+			slog.Warn("consumer exited with error", "instance_id", instanceID, "step", step.StepName, "error", err)
 		}
 	}()
 }

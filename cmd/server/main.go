@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,26 +23,32 @@ import (
 )
 
 func main() {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("loading config: %v", err)
+		slog.Error("loading config", "error", err)
+		os.Exit(1)
 	}
 
 	database, err := db.Open(cfg.DB.DSN())
 	if err != nil {
-		log.Fatalf("opening database: %v", err)
+		slog.Error("opening database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
 	if err := db.Migrate(database); err != nil {
-		log.Fatalf("running migrations: %v", err)
+		slog.Error("running migrations", "error", err)
+		os.Exit(1)
 	}
 
 	registry := workflow.NewRegistry(cfg.Workflows.Dir)
 	if err := registry.Load(); err != nil {
-		log.Fatalf("loading workflows from %s: %v", cfg.Workflows.Dir, err)
+		slog.Error("loading workflows", "dir", cfg.Workflows.Dir, "error", err)
+		os.Exit(1)
 	}
-	log.Printf("loaded %d workflow(s) from %s", len(registry.List()), cfg.Workflows.Dir)
+	slog.Info("workflows loaded", "count", len(registry.List()), "dir", cfg.Workflows.Dir)
 
 	var pub publisher.Publisher = publisher.Noop{}
 	var poller *workflow.Poller
@@ -50,7 +56,8 @@ func main() {
 	if cfg.QueueTi.Enabled {
 		qClient, err := buildQueueTiClient(context.Background(), cfg.QueueTi)
 		if err != nil {
-			log.Fatalf("connecting to queue-ti: %v", err)
+			slog.Error("connecting to queue-ti", "error", err)
+			os.Exit(1)
 		}
 		defer qClient.Close()
 
@@ -59,7 +66,8 @@ func main() {
 			cfg.QueueTi.Username, cfg.QueueTi.Password,
 		)
 		if err != nil {
-			log.Fatalf("creating queue-ti producer: %v", err)
+			slog.Error("creating queue-ti producer", "error", err)
+			os.Exit(1)
 		}
 		defer prod.Close()
 		pub = prod
@@ -77,7 +85,8 @@ func main() {
 
 	uiHandler, err := ui.NewHandler(engine, repo)
 	if err != nil {
-		log.Fatalf("building UI handler: %v", err)
+		slog.Error("building UI handler", "error", err)
+		os.Exit(1)
 	}
 
 	app := fiber.New(fiber.Config{
@@ -100,16 +109,16 @@ func main() {
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.Server.Port)
-		log.Printf("queuetask listening on %s", addr)
+		slog.Info("listening", "addr", addr)
 		if err := app.Listen(addr); err != nil {
-			log.Printf("server error: %v", err)
+			slog.Error("server error", "error", err)
 		}
 	}()
 
 	<-quit
-	log.Println("shutting down...")
+	slog.Info("shutting down")
 	if err := app.Shutdown(); err != nil {
-		log.Printf("shutdown error: %v", err)
+		slog.Error("shutdown error", "error", err)
 	}
 }
 

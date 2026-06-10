@@ -3,7 +3,7 @@ package publisher
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 
 	queueti "github.com/Joessst-Dev/queue-ti/clients/go-client"
 )
@@ -53,6 +53,6 @@ func (p *QueueTiProducer) Publish(topic string, payload []byte) error {
 
 func (p *QueueTiProducer) Close() {
 	if err := p.client.Close(); err != nil {
-		log.Printf("warn: closing queue-ti producer client: %v", err)
+		slog.Warn("closing queue-ti producer client", "error", err)
 	}
 }
