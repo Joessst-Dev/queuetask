@@ -34,7 +34,7 @@
 #          curl -X POST http://localhost:8080/api/messages \
 #            -H "Authorization: Bearer $TOKEN" \
 #            -H 'Content-Type: application/json' \
-#            -d '{"topic":"fulfillment-results","payload":{"status":"fulfilled"}}'
+#            -d '{"topic":"fulfillment-results","payload":"{\"status\":\"fulfilled\"}"}'
 
 services:
 
