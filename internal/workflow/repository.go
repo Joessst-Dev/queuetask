@@ -200,10 +200,13 @@ func (r *Repository) GetStep(ctx context.Context, instanceID uuid.UUID, stepName
 func (r *Repository) UpdateStepStatus(ctx context.Context, instanceID uuid.UUID, stepName string, status StepStatus, output json.RawMessage, errMsg string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE queuetask.step_executions
-		 SET status = $1, output = $2, error_message = $3,
-		     started_at  = CASE WHEN $1 IN ('running','completed') AND started_at IS NULL THEN now() ELSE started_at END,
-		     completed_at = CASE WHEN $1 IN ('completed','failed') THEN now() ELSE completed_at END,
-		     updated_at = now()
+		 SET status = $1,
+		     input  = CASE WHEN $1 IN ('running','waiting_manual','waiting_queueti') THEN $2 ELSE input END,
+		     output = CASE WHEN $1 IN ('completed','failed') THEN $2 ELSE output END,
+		     error_message = $3,
+		     started_at    = CASE WHEN $1 IN ('running','completed') AND started_at IS NULL THEN now() ELSE started_at END,
+		     completed_at  = CASE WHEN $1 IN ('completed','failed') THEN now() ELSE completed_at END,
+		     updated_at    = now()
 		 WHERE instance_id = $4 AND step_name = $5`,
 		status, output, nullStr(errMsg), instanceID, stepName,
 	)

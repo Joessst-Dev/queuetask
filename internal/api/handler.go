@@ -48,8 +48,10 @@ func (h *Handler) StartInstance(c *fiber.Ctx) error {
 	var body struct {
 		Input json.RawMessage `json:"input"`
 	}
-	if err := c.BodyParser(&body); err != nil && err.Error() != "EOF" {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&body); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 	}
 
 	inst, err := h.engine.StartInstance(c.Context(), name, body.Input)
@@ -105,8 +107,10 @@ func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 	var body struct {
 		Output json.RawMessage `json:"output"`
 	}
-	if err := c.BodyParser(&body); err != nil && err.Error() != "EOF" {
-		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&body); err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
 	}
 
 	if err := h.engine.TriggerStep(c.Context(), id, stepName, body.Output); err != nil {
