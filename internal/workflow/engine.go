@@ -7,10 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
+)
+
+const (
+	httpDefaultTimeout  = 30 * time.Second
+	httpMaxResponseSize = 10 * 1024 * 1024 // 10 MiB
 )
 
 // HTTPDoer is the subset of *http.Client used by the engine, allowing injection in tests.
@@ -32,7 +38,7 @@ func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, po
 		registry:   registry,
 		publisher:  pub,
 		poller:     poller,
-		httpClient: http.DefaultClient,
+		httpClient: &http.Client{Timeout: httpDefaultTimeout},
 	}
 }
 
@@ -194,8 +200,10 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 		method = http.MethodPost
 	}
 
+	// Only attach a body for methods that accept one.
+	bodyAllowed := method != http.MethodGet && method != http.MethodHead
 	var reqBody io.Reader
-	if len(body) > 0 {
+	if bodyAllowed && len(body) > 0 {
 		reqBody = bytes.NewReader(body)
 	}
 
@@ -204,7 +212,7 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 		return nil, fmt.Errorf("building request: %w", err)
 	}
 
-	if len(body) > 0 {
+	if bodyAllowed && len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	for k, v := range step.HTTPHeaders {
@@ -217,7 +225,7 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httpMaxResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("reading response body: %w", err)
 	}

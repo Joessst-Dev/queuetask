@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -66,8 +67,14 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("step %q with trigger=queueti requires queueti_topic", s.Name)
 		}
 
-		if s.Trigger == TriggerHTTP && (s.HTTP == nil || s.HTTP.URL == "") {
-			return fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
+		if s.Trigger == TriggerHTTP {
+			if s.HTTP == nil || s.HTTP.URL == "" {
+				return fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
+			}
+			u, err := url.Parse(s.HTTP.URL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+				return fmt.Errorf("step %q http.url must use http or https scheme", s.Name)
+			}
 		}
 	}
 

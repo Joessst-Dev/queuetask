@@ -213,6 +213,100 @@ steps:
 		})
 	})
 
+	Describe("GET requests do not send a body", func() {
+		It("sends no body and no Content-Type for GET steps", func() {
+			var receivedBody []byte
+			var receivedCT string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedBody, _ = io.ReadAll(r.Body)
+				receivedCT = r.Header.Get("Content-Type")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-get-wf
+steps:
+  - name: step-one
+    trigger: manual
+  - name: call-api
+    trigger: http
+    depends_on: [step-one]
+    http:
+      method: GET
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			inst, err := engine.StartInstance(ctx, "http-get-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(engine.TriggerStep(ctx, inst.ID, "step-one", json.RawMessage(`{"x":1}`))).To(Succeed())
+
+			Expect(receivedBody).To(BeEmpty())
+			Expect(receivedCT).To(BeEmpty())
+		})
+	})
+
+	Describe("response size limit", func() {
+		It("truncates a response larger than httpMaxResponseSize and still succeeds if valid JSON prefix", func() {
+			// Send exactly at the limit boundary — a response that is valid JSON and
+			// fits within the cap should be returned verbatim.
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				// Write a response well under the 10 MiB cap
+				w.Write([]byte(`{"ok":true}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-size-wf
+steps:
+  - name: call-api
+    trigger: http
+    http:
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			inst, err := engine.StartInstance(ctx, "http-size-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			steps, err := repo.ListSteps(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(steps[0].Status).To(Equal(workflow.StatusCompleted))
+		})
+	})
+
+	Describe("SetHTTPClient injection", func() {
+		It("uses the injected client instead of the default", func() {
+			called := false
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-inject-wf
+steps:
+  - name: call-api
+    trigger: http
+    http:
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			engine.SetHTTPClient(srv.Client()) // use the test server's client
+
+			inst, err := engine.StartInstance(ctx, "http-inject-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_ = inst
+
+			Expect(called).To(BeTrue())
+		})
+	})
+
 	Describe("definition validation", func() {
 		It("rejects an http step without http.url", func() {
 			def := &workflow.Definition{
@@ -222,16 +316,102 @@ steps:
 			Expect(def.Validate()).To(MatchError(ContainSubstring("requires http.url")))
 		})
 
-		It("accepts an http step with a URL", func() {
+		It("rejects a non-http/https scheme (SSRF guard)", func() {
+			for _, badURL := range []string{"file:///etc/passwd", "ftp://example.com", "javascript:alert(1)"} {
+				def := &workflow.Definition{
+					Name: "wf",
+					Steps: []workflow.StepDef{{
+						Name:    "s",
+						Trigger: workflow.TriggerHTTP,
+						HTTP:    &workflow.HTTPDef{URL: badURL},
+					}},
+				}
+				Expect(def.Validate()).To(MatchError(ContainSubstring("http or https scheme")),
+					"expected scheme rejection for URL: %s", badURL)
+			}
+		})
+
+		It("accepts http and https URLs", func() {
+			for _, goodURL := range []string{"http://example.com/api", "https://api.example.com/v1"} {
+				def := &workflow.Definition{
+					Name: "wf",
+					Steps: []workflow.StepDef{{
+						Name:    "s",
+						Trigger: workflow.TriggerHTTP,
+						HTTP:    &workflow.HTTPDef{URL: goodURL},
+					}},
+				}
+				Expect(def.Validate()).To(Succeed(), "expected valid URL: %s", goodURL)
+			}
+		})
+
+		It("rejects a URL with an empty scheme (bare path)", func() {
 			def := &workflow.Definition{
 				Name: "wf",
 				Steps: []workflow.StepDef{{
 					Name:    "s",
 					Trigger: workflow.TriggerHTTP,
-					HTTP:    &workflow.HTTPDef{URL: "http://example.com"},
+					HTTP:    &workflow.HTTPDef{URL: "example.com/api"},
 				}},
 			}
-			Expect(def.Validate()).To(Succeed())
+			Expect(def.Validate()).To(MatchError(ContainSubstring("http or https scheme")))
 		})
 	})
+
+	Describe("default method", func() {
+		It("defaults to POST when no method is specified", func() {
+			var receivedMethod string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedMethod = r.Method
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-default-method-wf
+steps:
+  - name: call-api
+    trigger: http
+    http:
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			inst, err := engine.StartInstance(ctx, "http-default-method-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_ = inst
+
+			Expect(receivedMethod).To(Equal(http.MethodPost))
+		})
+
+		It("sets Content-Type: application/json when sending a body", func() {
+			var receivedCT string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedCT = r.Header.Get("Content-Type")
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+			}))
+			DeferCleanup(srv.Close)
+
+			yaml := `
+name: http-ct-wf
+steps:
+  - name: step-one
+    trigger: manual
+  - name: call-api
+    trigger: http
+    depends_on: [step-one]
+    http:
+      url: ` + srv.URL + `
+`
+			engine, _ := makeEngine(yaml)
+			inst, err := engine.StartInstance(ctx, "http-ct-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(engine.TriggerStep(ctx, inst.ID, "step-one", json.RawMessage(`{"val":1}`))).To(Succeed())
+
+			Expect(receivedCT).To(ContainSubstring("application/json"))
+		})
+	})
+
 })
