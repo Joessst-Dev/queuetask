@@ -36,6 +36,11 @@ type stepsData struct {
 	Steps    []*workflow.StepExecution
 }
 
+type canvasItem struct {
+	Instance *workflow.Instance
+	Steps    []*workflow.StepExecution
+}
+
 func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
 	funcMap := template.FuncMap{
 		"isWaitingManual": func(s workflow.StepStatus) bool {
@@ -52,6 +57,22 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *wo
 			return s
 		},
 		"urlPathEscape": url.PathEscape,
+		"stepDotClasses": func(s workflow.StepStatus) string {
+			switch s {
+			case workflow.StatusCompleted:
+				return "bg-emerald-400"
+			case workflow.StatusRunning:
+				return "bg-orange-400"
+			case workflow.StatusWaitingManual:
+				return "bg-violet-400"
+			case workflow.StatusWaitingQueueTi:
+				return "bg-cyan-400"
+			case workflow.StatusFailed:
+				return "bg-red-400"
+			default:
+				return "bg-slate-700"
+			}
+		},
 		"badgeClasses": func(status any) string {
 			base := "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide"
 			var s string
@@ -103,6 +124,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 		return c.Send(tailwindCSS)
 	})
 	g := app.Group("/ui")
+	g.Get("/canvas", h.Canvas)
 	g.Get("/workflows", h.Workflows)
 	g.Post("/workflows/:name/start", h.StartInstance)
 	g.Get("/instances", h.Instances)
@@ -141,6 +163,19 @@ func (h *Handler) renderTriggered(c *fiber.Ctx, id uuid.UUID) error {
 
 func (h *Handler) Index(c *fiber.Ctx) error {
 	return h.render(c, "index.html", nil)
+}
+
+func (h *Handler) Canvas(c *fiber.Ctx) error {
+	instances, err := h.repo.ListInstances(c.Context())
+	if err != nil {
+		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	items := make([]canvasItem, 0, len(instances))
+	for _, inst := range instances {
+		steps, _ := h.repo.ListSteps(c.Context(), inst.ID)
+		items = append(items, canvasItem{Instance: inst, Steps: steps})
+	}
+	return h.render(c, "canvas.html", items)
 }
 
 func (h *Handler) Workflows(c *fiber.Ctx) error {

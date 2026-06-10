@@ -57,8 +57,10 @@
 
     </aside>
 
-    <main id="detail" class="flex-1 overflow-y-auto p-6">
-      <p class="text-slate-500 text-sm">&#8592; Select an instance to view its steps.</p>
+    <main id="detail" class="flex-1 overflow-y-auto"
+          hx-get="/ui/canvas"
+          hx-trigger="load"
+          hx-swap="innerHTML">
     </main>
 
   </div>
