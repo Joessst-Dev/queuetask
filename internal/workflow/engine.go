@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"time"
@@ -154,7 +155,7 @@ func (e *Engine) completeStep(ctx context.Context, instanceID uuid.UUID, stepNam
 	if step.PublishTopic != "" && len(output) > 0 {
 		if pubErr := e.publisher.Publish(step.PublishTopic, output); pubErr != nil {
 			// Non-fatal: log but don't fail the step
-			fmt.Printf("warn: publishing to topic %s: %v\n", step.PublishTopic, pubErr)
+			slog.Warn("publishing to topic failed", "topic", step.PublishTopic, "error", pubErr)
 		}
 	}
 	return nil

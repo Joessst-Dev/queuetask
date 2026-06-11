@@ -79,6 +79,8 @@ type StepDef struct {
 	HTTP               *HTTPDef    `yaml:"http"`
 }
 
+const urlUnsafeChars = "/ ?#&%+"
+
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
 func (d *Definition) Validate() error {
@@ -128,8 +130,8 @@ func validateSteps(steps []StepDef) (map[string]struct{}, error) {
 		if s.Name == "" {
 			return nil, fmt.Errorf("step[%d] name is required", i)
 		}
-		if strings.ContainsAny(s.Name, "/ ?#&%+") {
-			return nil, fmt.Errorf("step %q name contains URL-unsafe characters (/, space, ?, #, &, %%, +)", s.Name)
+		if strings.ContainsAny(s.Name, urlUnsafeChars) {
+			return nil, fmt.Errorf("step %q name contains URL-unsafe characters (%s)", s.Name, urlUnsafeChars)
 		}
 		if _, dup := names[s.Name]; dup {
 			return nil, fmt.Errorf("duplicate step name %q", s.Name)

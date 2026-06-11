@@ -91,16 +91,16 @@ func (r *Repository) CreateInstance(ctx context.Context, workflowName string, in
 
 func (r *Repository) GetInstance(ctx context.Context, id uuid.UUID) (*Instance, error) {
 	var inst Instance
-	var input, ctx_ []byte
+	var input, ctxBytes []byte
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, workflow_name, status, input, context, created_at, updated_at
 		 FROM queuetask.workflow_instances WHERE id = $1`, id,
-	).Scan(&inst.ID, &inst.WorkflowName, &inst.Status, &input, &ctx_, &inst.CreatedAt, &inst.UpdatedAt)
+	).Scan(&inst.ID, &inst.WorkflowName, &inst.Status, &input, &ctxBytes, &inst.CreatedAt, &inst.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("querying instance: %w", err)
 	}
 	inst.Input = input
-	inst.Context = ctx_
+	inst.Context = ctxBytes
 	return &inst, nil
 }
 
@@ -117,12 +117,12 @@ func (r *Repository) ListInstances(ctx context.Context) ([]*Instance, error) {
 	var out []*Instance
 	for rows.Next() {
 		var inst Instance
-		var input, ctx_ []byte
-		if err := rows.Scan(&inst.ID, &inst.WorkflowName, &inst.Status, &input, &ctx_, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
+		var input, ctxBytes []byte
+		if err := rows.Scan(&inst.ID, &inst.WorkflowName, &inst.Status, &input, &ctxBytes, &inst.CreatedAt, &inst.UpdatedAt); err != nil {
 			return nil, err
 		}
 		inst.Input = input
-		inst.Context = ctx_
+		inst.Context = ctxBytes
 		out = append(out, &inst)
 	}
 	return out, rows.Err()

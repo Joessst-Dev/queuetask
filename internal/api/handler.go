@@ -9,6 +9,18 @@ import (
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
+const errWorkflowNotFound = "workflow not found"
+
+func parseOptionalBody[T any](c *fiber.Ctx) (T, error) {
+	var v T
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&v); err != nil {
+			return v, fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+	}
+	return v, nil
+}
+
 type Handler struct {
 	engine   *workflow.Engine
 	registry *workflow.Registry
@@ -39,7 +51,7 @@ func (h *Handler) ListWorkflows(c *fiber.Ctx) error {
 func (h *Handler) GetWorkflow(c *fiber.Ctx) error {
 	def, ok := h.registry.Get(c.Params("name"))
 	if !ok {
-		return fiber.NewError(fiber.StatusNotFound, "workflow not found")
+		return fiber.NewError(fiber.StatusNotFound, errWorkflowNotFound)
 	}
 	return c.JSON(def)
 }
@@ -54,13 +66,11 @@ func (h *Handler) ReloadWorkflows(c *fiber.Ctx) error {
 func (h *Handler) StartInstance(c *fiber.Ctx) error {
 	name := c.Params("name")
 
-	var body struct {
+	body, err := parseOptionalBody[struct {
 		Input json.RawMessage `json:"input"`
-	}
-	if len(c.Body()) > 0 {
-		if err := c.BodyParser(&body); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, err.Error())
-		}
+	}](c)
+	if err != nil {
+		return err
 	}
 
 	inst, err := h.engine.StartInstance(c.Context(), name, body.Input)
@@ -120,7 +130,7 @@ func (h *Handler) WebhookStart(c *fiber.Ctx) error {
 	name := c.Params("name")
 	def, ok := h.registry.Get(name)
 	if !ok {
-		return fiber.NewError(fiber.StatusNotFound, "workflow not found")
+		return fiber.NewError(fiber.StatusNotFound, errWorkflowNotFound)
 	}
 	if !def.HasTriggerType(workflow.InstanceTriggerWebhook) {
 		return fiber.NewError(fiber.StatusUnprocessableEntity, "workflow does not have a webhook trigger configured")
@@ -144,13 +154,11 @@ func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 	}
 	stepName := c.Params("step")
 
-	var body struct {
+	body, err := parseOptionalBody[struct {
 		Output json.RawMessage `json:"output"`
-	}
-	if len(c.Body()) > 0 {
-		if err := c.BodyParser(&body); err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, err.Error())
-		}
+	}](c)
+	if err != nil {
+		return err
 	}
 
 	if err := h.engine.TriggerStep(c.Context(), id, stepName, body.Output); err != nil {
