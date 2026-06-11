@@ -13,73 +13,110 @@
     </button>
   </div>
   <div class="grid grid-cols-2 gap-3">
+
+    {{/* ── Identity ── */}}
     <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">Name <span class="text-red-400">*</span></label>
+      <label class="block text-xs font-medium text-slate-400 mb-1">Name <span class="text-red-400">*</span></label>
       <input type="text" name="step_name_{{.Idx}}"
              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
-             placeholder="step-name">
+             placeholder="notify-customer">
+      <p class="mt-1 text-xs text-slate-600">Unique identifier used in <code class="text-slate-500">depends_on</code> references and API calls. No spaces or special characters.</p>
     </div>
+
     <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">Trigger</label>
+      <label class="block text-xs font-medium text-slate-400 mb-1">Trigger <span class="text-red-400">*</span></label>
       <select name="step_trigger_{{.Idx}}"
-              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+              onchange="(function(sel){
+                var row = sel.closest('.step-row');
+                row.querySelectorAll('.field-queueti, .field-http').forEach(function(el){ el.classList.add('hidden') });
+                if (sel.value === 'queueti') row.querySelectorAll('.field-queueti').forEach(function(el){ el.classList.remove('hidden') });
+                if (sel.value === 'http')    row.querySelectorAll('.field-http').forEach(function(el){ el.classList.remove('hidden') });
+                htmx.trigger(document.getElementById('builder-form'), 'change');
+              })(this)">
         <option value="manual">manual</option>
         <option value="auto">auto</option>
         <option value="queueti">queueti</option>
         <option value="http">http</option>
       </select>
+      <p class="mt-1 text-xs text-slate-600">
+        <span class="text-slate-500 font-medium">manual</span> — waits for an explicit API call to advance it.
+        <span class="text-slate-500 font-medium">auto</span> — completes immediately when dependencies finish.
+        <span class="text-slate-500 font-medium">queueti</span> — waits for a message on a queue-ti topic.
+        <span class="text-slate-500 font-medium">http</span> — makes an outbound HTTP request and completes with the response.
+      </p>
     </div>
+
     <div class="col-span-2">
-      <label class="block text-xs font-medium text-slate-500 mb-1">Description</label>
+      <label class="block text-xs font-medium text-slate-400 mb-1">Description</label>
       <input type="text" name="step_description_{{.Idx}}"
              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
              placeholder="What this step does">
+      <p class="mt-1 text-xs text-slate-600">Human-readable summary shown in the canvas UI. Not used at runtime.</p>
     </div>
+
     <div class="col-span-2">
-      <label class="block text-xs font-medium text-slate-500 mb-1">
-        Depends on
-        <span class="text-slate-600 font-normal">(comma-separated step names)</span>
-      </label>
+      <label class="block text-xs font-medium text-slate-400 mb-1">Depends on</label>
       <input type="text" name="step_depends_on_{{.Idx}}"
              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
              placeholder="step-a, step-b">
+      <p class="mt-1 text-xs text-slate-600">Comma-separated names of steps that must complete before this step becomes active. Leave empty to start immediately when the workflow starts.</p>
     </div>
-    <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">Publish to topic</label>
+
+    <div class="col-span-2">
+      <label class="block text-xs font-medium text-slate-400 mb-1">Publish to topic</label>
       <input type="text" name="step_publish_{{.Idx}}"
              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
-             placeholder="my-topic">
+             placeholder="order-completed">
+      <p class="mt-1 text-xs text-slate-600">Optional. When this step completes, its output is published to this queue-ti topic. Useful for notifying other services or workflows.</p>
     </div>
-    <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">QueueTi topic</label>
-      <input type="text" name="step_queueti_topic_{{.Idx}}"
-             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
-             placeholder="fulfillment-results">
+
+    {{/* ── queueti-only fields ── */}}
+    <div class="col-span-2 field-queueti hidden">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">QueueTi topic <span class="text-red-400">*</span></label>
+          <input type="text" name="step_queueti_topic_{{.Idx}}"
+                 class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                 placeholder="fulfillment-results">
+          <p class="mt-1 text-xs text-slate-600">The queue-ti topic this step subscribes to. The step completes when the first message arrives, with the message payload as its output.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">Consumer group</label>
+          <input type="text" name="step_queueti_group_{{.Idx}}"
+                 class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                 placeholder="queuetask-my-workflow">
+          <p class="mt-1 text-xs text-slate-600">Consumer group name used when reading from the topic. Defaults to <code class="text-slate-500">queuetask</code> if left empty.</p>
+        </div>
+      </div>
     </div>
-    <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">QueueTi consumer group</label>
-      <input type="text" name="step_queueti_group_{{.Idx}}"
-             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
-             placeholder="queuetask-my-workflow">
+
+    {{/* ── http-only fields ── */}}
+    <div class="col-span-2 field-http hidden">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-slate-400 mb-1">HTTP URL <span class="text-red-400">*</span></label>
+          <input type="text" name="step_http_url_{{.Idx}}"
+                 class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                 placeholder="https://api.example.com/notify">
+          <p class="mt-1 text-xs text-slate-600">Full URL of the endpoint to call. Must use <code class="text-slate-500">https://</code> or <code class="text-slate-500">http://</code>. Private/loopback IP ranges are blocked. The step's input is sent as the JSON request body and the response body becomes the step output.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1">HTTP Method</label>
+          <select name="step_http_method_{{.Idx}}"
+                  class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+            <option value="">— default (POST) —</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+          </select>
+          <p class="mt-1 text-xs text-slate-600">Defaults to POST. GET and HEAD requests do not send a body.</p>
+        </div>
+      </div>
     </div>
-    <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">HTTP URL</label>
-      <input type="text" name="step_http_url_{{.Idx}}"
-             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
-             placeholder="https://api.example.com/endpoint">
-    </div>
-    <div>
-      <label class="block text-xs font-medium text-slate-500 mb-1">HTTP Method</label>
-      <select name="step_http_method_{{.Idx}}"
-              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
-        <option value="">—</option>
-        <option value="GET">GET</option>
-        <option value="POST">POST</option>
-        <option value="PUT">PUT</option>
-        <option value="PATCH">PATCH</option>
-        <option value="DELETE">DELETE</option>
-      </select>
-    </div>
+
   </div>
 </div>
 <input type="hidden" id="next_step_idx" name="next_step_idx" value="{{.NextIdx}}" hx-swap-oob="true">
