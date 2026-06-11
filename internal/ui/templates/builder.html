@@ -224,7 +224,7 @@
         </button>
         <button type="button"
                 class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
-                onclick="var pre=document.querySelector('#yaml-preview pre'); if(!pre) return; var name=(document.querySelector('[name=name]')||{}).value||'workflow'; var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([pre.textContent],{type:'text/yaml'})); a.download=name+'.yaml'; a.click(); URL.revokeObjectURL(a.href)">
+                onclick="var pre=document.querySelector('#yaml-preview pre'); if(!pre) return; var name=(document.querySelector('[name=name]')||{}).value||'workflow'; var a=document.createElement('a'); a.href='data:text/yaml;charset=utf-8,'+encodeURIComponent(pre.textContent); a.download=name+'.yaml'; document.body.appendChild(a); a.click(); document.body.removeChild(a)">
           Download
         </button>
       </div>
