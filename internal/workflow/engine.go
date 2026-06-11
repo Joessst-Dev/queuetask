@@ -187,6 +187,9 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 		}
 
 		mergedInput := mergeOutputs(s.DependsOn, completedSet)
+		if len(s.StaticInput) > 0 {
+			mergedInput = s.StaticInput
+		}
 
 		switch s.TriggerType {
 		case TriggerManual:

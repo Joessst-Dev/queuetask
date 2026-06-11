@@ -55,6 +55,7 @@ type StepExecution struct {
 	HTTPMethod   string
 	HTTPURL      string
 	HTTPHeaders  map[string]string
+	StaticInput  json.RawMessage
 	Input        json.RawMessage
 	Output       json.RawMessage
 	ErrorMessage string
@@ -150,12 +151,14 @@ func (r *Repository) CreateSteps(ctx context.Context, instanceID uuid.UUID, step
 		_, err := r.db.ExecContext(ctx,
 			`INSERT INTO queuetask.step_executions
 			 (instance_id, step_name, step_order, status, trigger_type, depends_on,
-			  publish_topic, queueti_topic, queueti_group, http_method, http_url, http_headers)
-			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+			  publish_topic, queueti_topic, queueti_group, http_method, http_url, http_headers,
+			  static_input)
+			 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 			instanceID, s.Name, i, StatusPending, s.Trigger,
 			pq.Array(coalesceSlice(s.DependsOn)),
 			nullStr(s.PublishToTopic), nullStr(s.QueueTiTopic), nullStr(s.QueueTiConsumerGrp),
 			nullStr(httpMethod), nullStr(httpURL), nullBytes(httpHeaders),
+			nullBytes(s.Input),
 		)
 		if err != nil {
 			return fmt.Errorf("inserting step %s: %w", s.Name, err)
@@ -168,7 +171,7 @@ func (r *Repository) ListSteps(ctx context.Context, instanceID uuid.UUID) ([]*St
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
 		        depends_on, publish_topic, queueti_topic, queueti_group,
-		        http_method, http_url, http_headers,
+		        http_method, http_url, http_headers, static_input,
 		        input, output, error_message, started_at, completed_at, created_at, updated_at
 		 FROM queuetask.step_executions WHERE instance_id = $1 ORDER BY step_order`,
 		instanceID,
@@ -193,7 +196,7 @@ func (r *Repository) GetStep(ctx context.Context, instanceID uuid.UUID, stepName
 	row := r.db.QueryRowContext(ctx,
 		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
 		        depends_on, publish_topic, queueti_topic, queueti_group,
-		        http_method, http_url, http_headers,
+		        http_method, http_url, http_headers, static_input,
 		        input, output, error_message, started_at, completed_at, created_at, updated_at
 		 FROM queuetask.step_executions WHERE instance_id = $1 AND step_name = $2`,
 		instanceID, stepName,
@@ -225,13 +228,13 @@ func scanStep(row scanner) (*StepExecution, error) {
 	var s StepExecution
 	var publishTopic, queuetiTopic, queuetiGroup sql.NullString
 	var httpMethod, httpURL sql.NullString
-	var httpHeaders []byte
+	var httpHeaders, staticInput []byte
 	var errMsg sql.NullString
 	var input, output []byte
 	if err := row.Scan(
 		&s.ID, &s.InstanceID, &s.StepName, &s.StepOrder, &s.Status, &s.TriggerType,
 		pq.Array(&s.DependsOn), &publishTopic, &queuetiTopic, &queuetiGroup,
-		&httpMethod, &httpURL, &httpHeaders,
+		&httpMethod, &httpURL, &httpHeaders, &staticInput,
 		&input, &output, &errMsg, &s.StartedAt, &s.CompletedAt, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		return nil, fmt.Errorf("scanning step: %w", err)
@@ -245,6 +248,7 @@ func scanStep(row scanner) (*StepExecution, error) {
 		_ = json.Unmarshal(httpHeaders, &s.HTTPHeaders)
 	}
 	s.ErrorMessage = errMsg.String
+	s.StaticInput = staticInput
 	s.Input = input
 	s.Output = output
 	return &s, nil

@@ -61,6 +61,7 @@ type builderStep struct {
 	Description        string       `yaml:"description,omitempty"`
 	Trigger            string       `yaml:"trigger,omitempty"`
 	DependsOn          []string     `yaml:"depends_on,omitempty"`
+	Input              any          `yaml:"input,omitempty"`
 	PublishToTopic     string       `yaml:"publish_to_topic,omitempty"`
 	QueueTiTopic       string       `yaml:"queueti_topic,omitempty"`
 	QueueTiConsumerGrp string       `yaml:"queueti_consumer_group,omitempty"`
@@ -144,6 +145,12 @@ func parseStepRows(c *fiber.Ctx) []builderStep {
 				if dep = strings.TrimSpace(dep); dep != "" {
 					s.DependsOn = append(s.DependsOn, dep)
 				}
+			}
+		}
+		if raw := c.FormValue(fmt.Sprintf("step_input_%d", i)); raw != "" {
+			var v any
+			if err := json.Unmarshal([]byte(raw), &v); err == nil {
+				s.Input = v
 			}
 		}
 		if u := c.FormValue(fmt.Sprintf("step_http_url_%d", i)); u != "" {
