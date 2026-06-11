@@ -178,6 +178,17 @@ func validateStepDependencies(steps []StepDef, names map[string]struct{}) error 
 	return nil
 }
 
+// HasTriggerType reports whether the definition declares at least one instance
+// trigger of the given type.
+func (d *Definition) HasTriggerType(t InstanceTriggerType) bool {
+	for _, trigger := range d.Triggers {
+		if trigger.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
 func ParseFile(path string) (*Definition, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

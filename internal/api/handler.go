@@ -78,10 +78,18 @@ func (h *Handler) ListInstances(c *fiber.Ctx) error {
 	return c.JSON(instances)
 }
 
-func (h *Handler) GetInstance(c *fiber.Ctx) error {
+func parseInstanceID(c *fiber.Ctx) (uuid.UUID, error) {
 	id, err := uuid.Parse(c.Params("id"))
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid instance id")
+		return uuid.Nil, fiber.NewError(fiber.StatusBadRequest, "invalid instance id")
+	}
+	return id, nil
+}
+
+func (h *Handler) GetInstance(c *fiber.Ctx) error {
+	id, err := parseInstanceID(c)
+	if err != nil {
+		return err
 	}
 	inst, err := h.repo.GetInstance(c.Context(), id)
 	if err != nil {
@@ -95,9 +103,9 @@ func (h *Handler) GetInstance(c *fiber.Ctx) error {
 }
 
 func (h *Handler) ListSteps(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := parseInstanceID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid instance id")
+		return err
 	}
 	steps, err := h.repo.ListSteps(c.Context(), id)
 	if err != nil {
@@ -114,14 +122,7 @@ func (h *Handler) WebhookStart(c *fiber.Ctx) error {
 	if !ok {
 		return fiber.NewError(fiber.StatusNotFound, "workflow not found")
 	}
-	hasWebhook := false
-	for _, t := range def.Triggers {
-		if t.Type == workflow.InstanceTriggerWebhook {
-			hasWebhook = true
-			break
-		}
-	}
-	if !hasWebhook {
+	if !def.HasTriggerType(workflow.InstanceTriggerWebhook) {
 		return fiber.NewError(fiber.StatusUnprocessableEntity, "workflow does not have a webhook trigger configured")
 	}
 
@@ -137,9 +138,9 @@ func (h *Handler) WebhookStart(c *fiber.Ctx) error {
 }
 
 func (h *Handler) TriggerStep(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := parseInstanceID(c)
 	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "invalid instance id")
+		return err
 	}
 	stepName := c.Params("step")
 

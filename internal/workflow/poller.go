@@ -71,12 +71,10 @@ func (p *Poller) Watch(instanceID uuid.UUID, step *StepExecution) {
 		}()
 
 		err := consumer.Consume(ctx, func(msgCtx context.Context, msg *queueti.Message) error {
-			payload, _ := json.Marshal(map[string]any{
-				"message_id": msg.ID,
-				"payload":    json.RawMessage(msg.Payload),
-				"metadata":   msg.Metadata,
-			})
-
+			payload, err := marshalQueueTiPayload(msg)
+			if err != nil {
+				return fmt.Errorf("marshalling message payload: %w", err)
+			}
 			if err := p.engine.TriggerStep(msgCtx, instanceID, step.StepName, payload); err != nil {
 				slog.Warn("poller trigger failed", "instance_id", instanceID, "step", step.StepName, "error", err)
 				return err // Nack so the message is retried
@@ -88,6 +86,16 @@ func (p *Poller) Watch(instanceID uuid.UUID, step *StepExecution) {
 			slog.Warn("consumer exited with error", "instance_id", instanceID, "step", step.StepName, "error", err)
 		}
 	}()
+}
+
+// marshalQueueTiPayload wraps a queue-ti message into the JSON envelope
+// passed as input to engine.TriggerStep and engine.StartInstance.
+func marshalQueueTiPayload(msg *queueti.Message) (json.RawMessage, error) {
+	return json.Marshal(map[string]any{
+		"message_id": msg.ID,
+		"payload":    json.RawMessage(msg.Payload),
+		"metadata":   msg.Metadata,
+	})
 }
 
 // Stop cancels the consumer goroutine for a given step.

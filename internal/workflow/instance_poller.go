@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -73,11 +72,10 @@ func (p *InstancePoller) run(ctx context.Context, workflowName string, t Workflo
 	consumer := p.client.NewConsumer(t.Topic, queueti.WithConsumerGroup(group))
 
 	err := consumer.Consume(ctx, func(msgCtx context.Context, msg *queueti.Message) error {
-		payload, _ := json.Marshal(map[string]any{
-			"message_id": msg.ID,
-			"payload":    json.RawMessage(msg.Payload),
-			"metadata":   msg.Metadata,
-		})
+		payload, err := marshalQueueTiPayload(msg)
+		if err != nil {
+			return fmt.Errorf("marshalling message payload: %w", err)
+		}
 		if _, err := p.engine.StartInstance(msgCtx, workflowName, payload); err != nil {
 			slog.Warn("instance trigger failed", "workflow", workflowName, "topic", t.Topic, "error", err)
 			return err // Nack

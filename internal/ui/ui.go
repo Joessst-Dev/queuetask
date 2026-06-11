@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -285,7 +286,10 @@ func (h *Handler) Canvas(c *fiber.Ctx) error {
 	}
 	items := make([]canvasItem, 0, len(instances))
 	for _, inst := range instances {
-		rawSteps, _ := h.repo.ListSteps(c.Context(), inst.ID)
+		rawSteps, err := h.repo.ListSteps(c.Context(), inst.ID)
+		if err != nil {
+			slog.Warn("canvas: listing steps", "instance_id", inst.ID, "error", err)
+		}
 
 		// Merge descriptions from the workflow definition (not stored in DB).
 		descs := map[string]string{}
