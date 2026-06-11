@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -105,11 +106,50 @@ func (r *Repository) GetInstance(ctx context.Context, id uuid.UUID) (*Instance, 
 	return &inst, nil
 }
 
-func (r *Repository) ListInstances(ctx context.Context) ([]*Instance, error) {
-	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, workflow_name, status, input, context, created_at, updated_at
-		 FROM queuetask.workflow_instances ORDER BY created_at DESC`,
-	)
+type ListInstancesFilter struct {
+	Statuses []InstanceStatus
+	Workflow string
+	After    time.Time
+	Before   time.Time
+}
+
+func (r *Repository) ListInstances(ctx context.Context, f ListInstancesFilter) ([]*Instance, error) {
+	q := `SELECT id, workflow_name, status, input, context, created_at, updated_at
+	      FROM queuetask.workflow_instances`
+	var conds []string
+	var args []any
+	n := 1
+
+	if len(f.Statuses) > 0 {
+		placeholders := make([]string, len(f.Statuses))
+		for i, s := range f.Statuses {
+			placeholders[i] = fmt.Sprintf("$%d", n)
+			args = append(args, string(s))
+			n++
+		}
+		conds = append(conds, "status IN ("+strings.Join(placeholders, ",")+")")
+	}
+	if f.Workflow != "" {
+		conds = append(conds, fmt.Sprintf("workflow_name = $%d", n))
+		args = append(args, f.Workflow)
+		n++
+	}
+	if !f.After.IsZero() {
+		conds = append(conds, fmt.Sprintf("created_at >= $%d", n))
+		args = append(args, f.After)
+		n++
+	}
+	if !f.Before.IsZero() {
+		conds = append(conds, fmt.Sprintf("created_at <= $%d", n))
+		args = append(args, f.Before)
+		n++
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
+	}
+	q += " ORDER BY created_at DESC"
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("listing instances: %w", err)
 	}

@@ -14,9 +14,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -52,6 +54,85 @@ type runStep struct {
 type runItem struct {
 	Instance *workflow.Instance
 	Steps    []runStep
+}
+
+type runsFilter struct {
+	Statuses    []workflow.InstanceStatus
+	StatusesStr string // comma-separated, for the hidden input value attribute
+	Workflow    string
+	After       string // YYYY-MM-DD
+	Before      string // YYYY-MM-DD
+}
+
+type runsPageData struct {
+	Items     []runItem
+	Filter    runsFilter
+	Workflows []string
+}
+
+func parseStatuses(s string) []workflow.InstanceStatus {
+	if s == "" {
+		return nil
+	}
+	var out []workflow.InstanceStatus
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, workflow.InstanceStatus(p))
+		}
+	}
+	return out
+}
+
+func parseRunsFilter(c *fiber.Ctx) runsFilter {
+	f := runsFilter{
+		StatusesStr: c.Query("status"),
+		Workflow:    c.Query("workflow"),
+		After:       c.Query("after"),
+		Before:      c.Query("before"),
+	}
+	f.Statuses = parseStatuses(f.StatusesStr)
+	return f
+}
+
+func runsFilterToRepo(f runsFilter) workflow.ListInstancesFilter {
+	rf := workflow.ListInstancesFilter{
+		Statuses: f.Statuses,
+		Workflow: f.Workflow,
+	}
+	if f.After != "" {
+		if t, err := time.Parse("2006-01-02", f.After); err == nil {
+			rf.After = t
+		}
+	}
+	if f.Before != "" {
+		if t, err := time.Parse("2006-01-02", f.Before); err == nil {
+			// inclusive of the entire Before day
+			rf.Before = t.Add(24*time.Hour - time.Nanosecond)
+		}
+	}
+	return rf
+}
+
+func buildRunItems(ctx context.Context, h *Handler, instances []*workflow.Instance) []runItem {
+	items := make([]runItem, 0, len(instances))
+	for _, inst := range instances {
+		rawSteps, err := h.repo.ListSteps(ctx, inst.ID)
+		if err != nil {
+			slog.Warn("runs: listing steps", "instance_id", inst.ID, "error", err)
+		}
+		descs := map[string]string{}
+		if def, ok := h.registry.Get(inst.WorkflowName); ok {
+			for _, s := range def.Steps {
+				descs[s.Name] = s.Description
+			}
+		}
+		steps := make([]runStep, len(rawSteps))
+		for i, s := range rawSteps {
+			steps[i] = runStep{StepExecution: s, Description: descs[s.StepName]}
+		}
+		items = append(items, runItem{Instance: inst, Steps: steps})
+	}
+	return items
 }
 
 // Builder output types — use omitempty so the generated YAML is clean.
@@ -343,6 +424,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	})
 	g := app.Group("/ui")
 	g.Get("/runs", h.Runs)
+	g.Get("/runs/grid", h.RunsGrid)
 	g.Get("/builder", h.Builder)
 	g.Post("/builder/preview", h.BuilderPreview)
 	g.Post("/builder/save", h.BuilderSave)
@@ -390,32 +472,31 @@ func (h *Handler) Index(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Runs(c *fiber.Ctx) error {
-	instances, err := h.repo.ListInstances(c.Context())
+	f := parseRunsFilter(c)
+	instances, err := h.repo.ListInstances(c.Context(), runsFilterToRepo(f))
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	items := make([]runItem, 0, len(instances))
-	for _, inst := range instances {
-		rawSteps, err := h.repo.ListSteps(c.Context(), inst.ID)
-		if err != nil {
-			slog.Warn("runs: listing steps", "instance_id", inst.ID, "error", err)
-		}
-
-		// Merge descriptions from the workflow definition (not stored in DB).
-		descs := map[string]string{}
-		if def, ok := h.registry.Get(inst.WorkflowName); ok {
-			for _, s := range def.Steps {
-				descs[s.Name] = s.Description
-			}
-		}
-
-		steps := make([]runStep, len(rawSteps))
-		for i, s := range rawSteps {
-			steps[i] = runStep{StepExecution: s, Description: descs[s.StepName]}
-		}
-		items = append(items, runItem{Instance: inst, Steps: steps})
+	defs := h.registry.List()
+	names := make([]string, len(defs))
+	for i, d := range defs {
+		names[i] = d.Name
 	}
-	return h.render(c, "runs.html", items)
+	sort.Strings(names)
+	return h.render(c, "runs.html", runsPageData{
+		Items:     buildRunItems(c.Context(), h, instances),
+		Filter:    f,
+		Workflows: names,
+	})
+}
+
+func (h *Handler) RunsGrid(c *fiber.Ctx) error {
+	f := parseRunsFilter(c)
+	instances, err := h.repo.ListInstances(c.Context(), runsFilterToRepo(f))
+	if err != nil {
+		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return h.render(c, "runs-grid-content", buildRunItems(c.Context(), h, instances))
 }
 
 func (h *Handler) Workflows(c *fiber.Ctx) error {
@@ -438,7 +519,8 @@ func (h *Handler) StartInstance(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Instances(c *fiber.Ctx) error {
-	instances, err := h.repo.ListInstances(c.Context())
+	f := workflow.ListInstancesFilter{Statuses: parseStatuses(c.Query("status"))}
+	instances, err := h.repo.ListInstances(c.Context(), f)
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}

@@ -3,6 +3,7 @@ package workflow_test
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -10,6 +11,14 @@ import (
 
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
+
+func mustParseTime(s string) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
 
 var _ = Describe("Repository", func() {
 	var (
@@ -61,9 +70,123 @@ var _ = Describe("Repository", func() {
 			_, err = repo.CreateInstance(ctx, "wf-b", nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			list, err := repo.ListInstances(ctx)
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(list).To(HaveLen(2))
+		})
+
+		It("ListInstances filters by a single status", func() {
+			inst, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(repo.UpdateInstanceStatus(ctx, inst.ID, workflow.InstanceCompleted)).To(Succeed())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				Statuses: []workflow.InstanceStatus{workflow.InstanceCompleted},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(1))
+			Expect(list[0].ID).To(Equal(inst.ID))
+		})
+
+		It("ListInstances filters by multiple statuses", func() {
+			instA, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			instB, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(repo.UpdateInstanceStatus(ctx, instA.ID, workflow.InstanceCompleted)).To(Succeed())
+			Expect(repo.UpdateInstanceStatus(ctx, instB.ID, workflow.InstanceFailed)).To(Succeed())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				Statuses: []workflow.InstanceStatus{workflow.InstanceCompleted, workflow.InstanceFailed},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(2))
+		})
+
+		It("ListInstances filters by workflow name", func() {
+			_, err := repo.CreateInstance(ctx, "wf-target", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.CreateInstance(ctx, "wf-other", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{Workflow: "wf-target"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(1))
+			Expect(list[0].WorkflowName).To(Equal("wf-target"))
+		})
+
+		It("ListInstances filters by status and workflow together", func() {
+			instA, err := repo.CreateInstance(ctx, "wf-target", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.CreateInstance(ctx, "wf-target", nil)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = repo.CreateInstance(ctx, "wf-other", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(repo.UpdateInstanceStatus(ctx, instA.ID, workflow.InstanceCompleted)).To(Succeed())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				Statuses: []workflow.InstanceStatus{workflow.InstanceCompleted},
+				Workflow: "wf-target",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(1))
+			Expect(list[0].ID).To(Equal(instA.ID))
+		})
+
+		It("ListInstances filters by After date (inclusive boundary)", func() {
+			old, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			recent, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Place old instance before the boundary, recent on the boundary.
+			day := "2024-06-10T00:00:00Z"
+			boundary := "2024-06-11T00:00:00Z"
+			_, err = testDB.ExecContext(ctx,
+				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, day, old.ID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testDB.ExecContext(ctx,
+				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, boundary, recent.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				After: mustParseTime("2024-06-11T00:00:00Z"),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(1))
+			Expect(list[0].ID).To(Equal(recent.ID))
+		})
+
+		It("ListInstances filters by Before date (end-of-day inclusive)", func() {
+			early, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			late, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// early is on 2024-06-11 23:59:59 (should match Before=2024-06-11 end-of-day).
+			// late is 2024-06-12 00:00:00 (should NOT match).
+			eod := "2024-06-11T23:59:59.999999999Z"
+			nextDay := "2024-06-12T00:00:00Z"
+			_, err = testDB.ExecContext(ctx,
+				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, eod, early.ID)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = testDB.ExecContext(ctx,
+				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, nextDay, late.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				Before: mustParseTime("2024-06-12T00:00:00Z").Add(-time.Nanosecond), // end of 2024-06-11
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list).To(HaveLen(1))
+			Expect(list[0].ID).To(Equal(early.ID))
 		})
 
 		It("UpdateInstanceStatus changes the status", func() {

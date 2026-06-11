@@ -1,16 +1,11 @@
-<div id="runs-grid"
-     class="p-6"
-     hx-get="/ui/runs"
-     hx-trigger="every 5s"
-     hx-target="#runs-grid"
-     hx-swap="outerHTML">
+{{define "runs-grid-content"}}
 {{if not .}}
   <div class="flex flex-col items-center justify-center h-64 text-center select-none">
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-3">
       <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
     </svg>
-    <p class="text-slate-500 text-sm">No instances yet.</p>
-    <p class="text-slate-600 text-xs mt-1">Start a workflow from the sidebar.</p>
+    <p class="text-slate-500 text-sm">No instances found.</p>
+    <p class="text-slate-600 text-xs mt-1">Start a workflow from the sidebar or adjust your filters.</p>
   </div>
 {{else}}
   <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -60,4 +55,164 @@
     {{end}}
   </div>
 {{end}}
+{{end}}
+
+{{$selectedWf := .Filter.Workflow}}
+<div class="h-full flex flex-col overflow-hidden">
+
+  {{/* ── Filter panel ── */}}
+  <div id="runs-filter" class="border-b border-slate-800 bg-slate-900/30 shrink-0 px-4 py-3 space-y-2.5">
+
+    {{/* Hidden input: carries the comma-joined status values for hx-include */}}
+    <input type="hidden" id="rf-status" name="status" value="{{.Filter.StatusesStr}}">
+
+    {{/* Row 1: status chips */}}
+    <div class="flex items-center gap-1.5 flex-wrap">
+      <span class="text-xs text-slate-600 font-medium mr-0.5 shrink-0">Status</span>
+      <button type="button" data-rf-chip="pending"
+              onclick="toggleRFStatus('pending')"
+              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">pending</button>
+      <button type="button" data-rf-chip="running"
+              onclick="toggleRFStatus('running')"
+              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">running</button>
+      <button type="button" data-rf-chip="completed"
+              onclick="toggleRFStatus('completed')"
+              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">completed</button>
+      <button type="button" data-rf-chip="failed"
+              onclick="toggleRFStatus('failed')"
+              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">failed</button>
+      <span id="rf-count" class="hidden ml-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold leading-none"></span>
+      <button type="button" id="rf-clear" onclick="clearRunsFilter()"
+              class="hidden ml-1 text-xs text-slate-600 hover:text-slate-400 transition-colors cursor-pointer border-0 bg-transparent p-0">✕ clear</button>
+    </div>
+
+    {{/* Row 2: workflow + date range */}}
+    <div class="flex items-center gap-2 flex-wrap">
+      <span class="text-xs text-slate-600 font-medium shrink-0">Workflow</span>
+      <select id="rf-workflow" name="workflow" onchange="applyRunsFilter()"
+              class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 cursor-pointer focus:outline-none focus:border-slate-600">
+        <option value="">All</option>
+        {{range .Workflows}}
+        <option value="{{.}}" {{if eq . $selectedWf}}selected{{end}}>{{.}}</option>
+        {{end}}
+      </select>
+      <span class="text-xs text-slate-600 font-medium shrink-0 ml-2">After</span>
+      <input type="date" id="rf-after" name="after" value="{{.Filter.After}}" onchange="applyRunsFilter()"
+             class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 focus:outline-none focus:border-slate-600">
+      <span class="text-xs text-slate-600 font-medium shrink-0">Before</span>
+      <input type="date" id="rf-before" name="before" value="{{.Filter.Before}}" onchange="applyRunsFilter()"
+             class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 focus:outline-none focus:border-slate-600">
+    </div>
+  </div>
+
+  {{/* ── Grid: auto-refreshes every 5s, includes filter state ── */}}
+  <div id="runs-grid"
+       class="flex-1 overflow-y-auto p-6"
+       hx-get="/ui/runs/grid"
+       hx-include="#runs-filter"
+       hx-trigger="every 5s"
+       hx-target="#runs-grid"
+       hx-swap="innerHTML">
+    {{template "runs-grid-content" .Items}}
+  </div>
+
 </div>
+
+<script>
+(function () {
+  var CHIP_ACTIVE   = 'bg-blue-600 text-white';
+  var CHIP_INACTIVE = 'bg-slate-800 text-slate-400';
+
+  function getActiveStatuses() {
+    var val = document.getElementById('rf-status').value;
+    return val ? val.split(',') : [];
+  }
+
+  function syncChipStyles() {
+    var active = getActiveStatuses();
+    document.querySelectorAll('[data-rf-chip]').forEach(function (btn) {
+      var on = active.indexOf(btn.dataset.rfChip) !== -1;
+      CHIP_ACTIVE.split(' ').forEach(function (c) { btn.classList.toggle(c, on); });
+      CHIP_INACTIVE.split(' ').forEach(function (c) { btn.classList.toggle(c, !on); });
+    });
+    updateBadge();
+  }
+
+  function updateBadge() {
+    var count = 0;
+    if (document.getElementById('rf-status').value) count++;
+    if (document.getElementById('rf-workflow').value) count++;
+    if (document.getElementById('rf-after').value)  count++;
+    if (document.getElementById('rf-before').value) count++;
+
+    var badge = document.getElementById('rf-count');
+    var clear  = document.getElementById('rf-clear');
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+      clear.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+      clear.classList.add('hidden');
+    }
+  }
+
+  function collectFilterValues() {
+    var vals = {};
+    var status = document.getElementById('rf-status').value;
+    if (status)   vals.status   = status;
+    var workflow = document.getElementById('rf-workflow').value;
+    if (workflow) vals.workflow = workflow;
+    var after  = document.getElementById('rf-after').value;
+    if (after)    vals.after   = after;
+    var before = document.getElementById('rf-before').value;
+    if (before)   vals.before  = before;
+    return vals;
+  }
+
+  function updateHash() {
+    var vals = collectFilterValues();
+    var qs = Object.keys(vals).map(function (k) {
+      return k + '=' + encodeURIComponent(vals[k]);
+    });
+    history.replaceState(null, '', '#runs' + (qs.length ? '?' + qs.join('&') : ''));
+  }
+
+  function refreshGrid() {
+    htmx.ajax('GET', '/ui/runs/grid', {
+      target: '#runs-grid',
+      swap:   'innerHTML',
+      values: collectFilterValues()
+    });
+    updateHash();
+  }
+
+  window.toggleRFStatus = function (val) {
+    var inp = document.getElementById('rf-status');
+    var statuses = getActiveStatuses();
+    var idx = statuses.indexOf(val);
+    if (idx === -1) statuses.push(val);
+    else statuses.splice(idx, 1);
+    inp.value = statuses.join(',');
+    syncChipStyles();
+    refreshGrid();
+  };
+
+  window.applyRunsFilter = function () {
+    syncChipStyles();
+    refreshGrid();
+  };
+
+  window.clearRunsFilter = function () {
+    document.getElementById('rf-status').value   = '';
+    document.getElementById('rf-workflow').value  = '';
+    document.getElementById('rf-after').value     = '';
+    document.getElementById('rf-before').value    = '';
+    syncChipStyles();
+    refreshGrid();
+  };
+
+  // Initialise chip styles from server-rendered hidden input value.
+  syncChipStyles();
+}());
+</script>

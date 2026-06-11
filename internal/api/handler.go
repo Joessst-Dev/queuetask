@@ -81,7 +81,7 @@ func (h *Handler) StartInstance(c *fiber.Ctx) error {
 }
 
 func (h *Handler) ListInstances(c *fiber.Ctx) error {
-	instances, err := h.repo.ListInstances(c.Context())
+	instances, err := h.repo.ListInstances(c.Context(), workflow.ListInstancesFilter{})
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
