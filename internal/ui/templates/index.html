@@ -85,12 +85,52 @@
 
     </aside>
 
-    <main id="detail" class="flex-1 overflow-y-auto"
-          hx-get="/ui/canvas"
-          hx-trigger="load"
-          hx-swap="innerHTML">
-    </main>
+    <main id="detail" class="flex-1 overflow-y-auto"></main>
 
   </div>
+
+  <script>
+    (function () {
+      // true only during the initial page load; prevents a spurious pushState entry.
+      var initialLoad = true;
+
+      function pathFromHash() {
+        var h = window.location.hash.slice(1);
+        return h ? '/ui/' + h : '/ui/canvas';
+      }
+
+      // After each GET swap into #detail, keep the URL hash in sync with the view.
+      // Initial load: replaceState (normalize URL, no extra history entry).
+      // Subsequent navigation: pushState so back/forward buttons work.
+      document.body.addEventListener('htmx:afterSettle', function (evt) {
+        if (!evt.detail.target || evt.detail.target.id !== 'detail') return;
+        var cfg = evt.detail.requestConfig;
+        if (!cfg || cfg.verb !== 'get') return;
+        var path = cfg.path;
+        if (!path && evt.detail.xhr) {
+          try { path = new URL(evt.detail.xhr.responseURL).pathname; } catch (e) {}
+        }
+        if (path && path.startsWith('/ui/')) {
+          var newHash = '#' + path.slice(4);
+          if (initialLoad) {
+            history.replaceState(null, '', newHash);
+            initialLoad = false;
+          } else if (window.location.hash !== newHash) {
+            history.pushState(null, '', newHash);
+          }
+        }
+      });
+
+      // Browser back / forward support.
+      window.addEventListener('popstate', function () {
+        htmx.ajax('GET', pathFromHash(), { target: '#detail', swap: 'innerHTML' });
+      });
+
+      // Restore the last view from the hash on initial load, defaulting to canvas.
+      document.addEventListener('DOMContentLoaded', function () {
+        htmx.ajax('GET', pathFromHash(), { target: '#detail', swap: 'innerHTML' });
+      });
+    }());
+  </script>
 </body>
 </html>
