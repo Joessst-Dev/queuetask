@@ -167,23 +167,8 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 		return err
 	}
 
-	completedSet := make(map[string]json.RawMessage, len(steps))
-	for _, s := range steps {
-		if s.Status == StatusCompleted {
-			completedSet[s.StepName] = s.Output
-		}
-	}
-
-	allDone := true
-	anyFailed := false
-	for _, s := range steps {
-		if s.Status == StatusFailed {
-			anyFailed = true
-		}
-		if s.Status != StatusCompleted && s.Status != StatusFailed {
-			allDone = false
-		}
-	}
+	completedSet := buildCompletedSet(steps)
+	allDone, anyFailed := workflowState(steps)
 
 	if anyFailed {
 		return e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceFailed)
@@ -200,7 +185,6 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			continue
 		}
 
-		// Merge outputs from dependencies as this step's input
 		mergedInput := mergeOutputs(s.DependsOn, completedSet)
 
 		switch s.TriggerType {
@@ -216,7 +200,6 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			if err := e.completeStep(ctx, instanceID, s.StepName, mergedInput); err != nil {
 				return err
 			}
-			// Recurse to activate any newly unblocked steps
 			return e.advance(ctx, instanceID)
 
 		case TriggerQueueTi:
@@ -251,14 +234,49 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 	return nil
 }
 
+func buildCompletedSet(steps []*StepExecution) map[string]json.RawMessage {
+	m := make(map[string]json.RawMessage, len(steps))
+	for _, s := range steps {
+		if s.Status == StatusCompleted {
+			m[s.StepName] = s.Output
+		}
+	}
+	return m
+}
+
+func workflowState(steps []*StepExecution) (allDone, anyFailed bool) {
+	allDone = true
+	for _, s := range steps {
+		if s.Status == StatusFailed {
+			anyFailed = true
+		}
+		if s.Status != StatusCompleted && s.Status != StatusFailed {
+			allDone = false
+		}
+	}
+	return
+}
+
 func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body json.RawMessage) (json.RawMessage, error) {
+	req, err := e.buildHTTPRequest(ctx, step, body)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := e.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close()
+	return parseHTTPResponseBody(resp)
+}
+
+func (e *Engine) buildHTTPRequest(ctx context.Context, step *StepExecution, body json.RawMessage) (*http.Request, error) {
 	method := step.HTTPMethod
 	if method == "" {
 		method = http.MethodPost
 	}
-
-	// Only attach a body for methods that accept one.
 	bodyAllowed := method != http.MethodGet && method != http.MethodHead
+
 	var reqBody io.Reader
 	if bodyAllowed && len(body) > 0 {
 		reqBody = bytes.NewReader(body)
@@ -282,13 +300,12 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 	for k, v := range step.HTTPHeaders {
 		req.Header.Set(k, v)
 	}
+	return req, nil
+}
 
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("executing request: %w", err)
-	}
-	defer resp.Body.Close()
-
+// parseHTTPResponseBody validates the status code, enforces the size limit,
+// and returns the body as JSON (wrapping plain text if needed).
+func parseHTTPResponseBody(resp *http.Response) (json.RawMessage, error) {
 	// Check status before buffering the full body to avoid reading large error payloads.
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
@@ -303,7 +320,6 @@ func (e *Engine) executeHTTPStep(ctx context.Context, step *StepExecution, body 
 	if int64(len(respBody)) > httpMaxResponseSize {
 		return nil, fmt.Errorf("response body exceeded %d-byte limit", httpMaxResponseSize)
 	}
-
 	if len(respBody) == 0 {
 		return nil, nil
 	}

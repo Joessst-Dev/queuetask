@@ -85,8 +85,18 @@ func (d *Definition) Validate() error {
 	if d.Name == "" {
 		return fmt.Errorf("workflow name is required")
 	}
+	if err := validateTriggers(d.Triggers); err != nil {
+		return err
+	}
+	names, err := validateSteps(d.Steps)
+	if err != nil {
+		return err
+	}
+	return validateStepDependencies(d.Steps, names)
+}
 
-	for i, t := range d.Triggers {
+func validateTriggers(triggers []WorkflowTrigger) error {
+	for i, t := range triggers {
 		switch t.Type {
 		case InstanceTriggerCron:
 			if t.Schedule == "" {
@@ -107,50 +117,58 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("trigger[%d]: unknown trigger type %q", i, t.Type)
 		}
 	}
+	return nil
+}
 
-	names := make(map[string]struct{}, len(d.Steps))
-	for i, s := range d.Steps {
+// validateSteps checks each step definition and normalises default values in place.
+// It returns the set of step names for use in dependency validation.
+func validateSteps(steps []StepDef) (map[string]struct{}, error) {
+	names := make(map[string]struct{}, len(steps))
+	for i, s := range steps {
 		if s.Name == "" {
-			return fmt.Errorf("step[%d] name is required", i)
+			return nil, fmt.Errorf("step[%d] name is required", i)
 		}
 		if strings.ContainsAny(s.Name, "/ ?#&%+") {
-			return fmt.Errorf("step %q name contains URL-unsafe characters (/, space, ?, #, &, %%, +)", s.Name)
+			return nil, fmt.Errorf("step %q name contains URL-unsafe characters (/, space, ?, #, &, %%, +)", s.Name)
 		}
 		if _, dup := names[s.Name]; dup {
-			return fmt.Errorf("duplicate step name %q", s.Name)
+			return nil, fmt.Errorf("duplicate step name %q", s.Name)
 		}
 		names[s.Name] = struct{}{}
 
 		switch s.Trigger {
 		case TriggerManual, TriggerAuto, TriggerQueueTi, TriggerHTTP:
 		case "":
-			d.Steps[i].Trigger = TriggerManual
+			steps[i].Trigger = TriggerManual
 		default:
-			return fmt.Errorf("step %q has unknown trigger type %q", s.Name, s.Trigger)
+			return nil, fmt.Errorf("step %q has unknown trigger type %q", s.Name, s.Trigger)
 		}
 
 		if s.Trigger == TriggerQueueTi && s.QueueTiTopic == "" {
-			return fmt.Errorf("step %q with trigger=queueti requires queueti_topic", s.Name)
+			return nil, fmt.Errorf("step %q with trigger=queueti requires queueti_topic", s.Name)
 		}
 
 		if s.Trigger == TriggerHTTP {
 			if s.HTTP == nil || s.HTTP.URL == "" {
-				return fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
+				return nil, fmt.Errorf("step %q with trigger=http requires http.url", s.Name)
 			}
 			if err := validateHTTPURL(s.HTTP.URL); err != nil {
-				return fmt.Errorf("step %q http.url: %w", s.Name, err)
+				return nil, fmt.Errorf("step %q http.url: %w", s.Name, err)
 			}
 			if s.HTTP.Method != "" {
 				method := strings.ToUpper(s.HTTP.Method)
 				if !validHTTPMethods[method] {
-					return fmt.Errorf("step %q http.method %q is not a recognized HTTP method", s.Name, s.HTTP.Method)
+					return nil, fmt.Errorf("step %q http.method %q is not a recognized HTTP method", s.Name, s.HTTP.Method)
 				}
-				d.Steps[i].HTTP.Method = method
+				steps[i].HTTP.Method = method
 			}
 		}
 	}
+	return names, nil
+}
 
-	for _, s := range d.Steps {
+func validateStepDependencies(steps []StepDef, names map[string]struct{}) error {
+	for _, s := range steps {
 		for _, dep := range s.DependsOn {
 			if _, ok := names[dep]; !ok {
 				return fmt.Errorf("step %q depends on unknown step %q", s.Name, dep)

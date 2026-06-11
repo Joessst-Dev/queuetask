@@ -93,16 +93,30 @@ func parseBuilderForm(c *fiber.Ctx) builderDef {
 	if v, _ := strconv.Atoi(c.FormValue("version")); v > 0 {
 		def.Version = v
 	}
+	def.Triggers = parseTriggerRows(c)
+	def.Steps = parseStepRows(c)
+	return def
+}
+
+func parseTriggerRows(c *fiber.Ctx) []builderTrigger {
+	var triggers []builderTrigger
 	for i := 0; i < maxBuilderRows; i++ {
-		if ttype := c.FormValue(fmt.Sprintf("trigger_type_%d", i)); ttype != "" {
-			def.Triggers = append(def.Triggers, builderTrigger{
-				Type:          ttype,
-				Schedule:      c.FormValue(fmt.Sprintf("trigger_schedule_%d", i)),
-				Topic:         c.FormValue(fmt.Sprintf("trigger_topic_%d", i)),
-				ConsumerGroup: c.FormValue(fmt.Sprintf("trigger_group_%d", i)),
-			})
+		ttype := c.FormValue(fmt.Sprintf("trigger_type_%d", i))
+		if ttype == "" {
+			continue
 		}
+		triggers = append(triggers, builderTrigger{
+			Type:          ttype,
+			Schedule:      c.FormValue(fmt.Sprintf("trigger_schedule_%d", i)),
+			Topic:         c.FormValue(fmt.Sprintf("trigger_topic_%d", i)),
+			ConsumerGroup: c.FormValue(fmt.Sprintf("trigger_group_%d", i)),
+		})
 	}
+	return triggers
+}
+
+func parseStepRows(c *fiber.Ctx) []builderStep {
+	var steps []builderStep
 	for i := 0; i < maxBuilderRows; i++ {
 		name := c.FormValue(fmt.Sprintf("step_name_%d", i))
 		if name == "" {
@@ -129,13 +143,25 @@ func parseBuilderForm(c *fiber.Ctx) builderDef {
 				Method: c.FormValue(fmt.Sprintf("step_http_method_%d", i)),
 			}
 		}
-		def.Steps = append(def.Steps, s)
+		steps = append(steps, s)
 	}
-	return def
+	return steps
 }
 
 func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
-	funcMap := template.FuncMap{
+	sub, err := fs.Sub(templateFiles, "templates")
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := template.New("").Funcs(buildTemplateFuncMap()).ParseFS(sub, "*.html")
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl}, nil
+}
+
+func buildTemplateFuncMap() template.FuncMap {
+	return template.FuncMap{
 		"isWaitingManual": func(s workflow.StepStatus) bool {
 			return s == workflow.StatusWaitingManual
 		},
@@ -197,16 +223,6 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *wo
 			}
 		},
 	}
-
-	sub, err := fs.Sub(templateFiles, "templates")
-	if err != nil {
-		return nil, err
-	}
-	tmpl, err := template.New("").Funcs(funcMap).ParseFS(sub, "*.html")
-	if err != nil {
-		return nil, err
-	}
-	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl}, nil
 }
 
 func (h *Handler) RegisterRoutes(app *fiber.App) {
