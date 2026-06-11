@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -247,9 +246,19 @@ type chartData struct {
 	Diagram string
 }
 
-// mermaidEscape escapes characters that would break a Mermaid quoted label.
-// `"` terminates the label string; `#` starts a Mermaid entity sequence.
-var mermaidReplacer = strings.NewReplacer("#", "#35;", `"`, "#quot;")
+// mermaidEscape escapes characters that are unsafe inside a Mermaid quoted label
+// that is rendered as HTML (htmlLabels: true).
+//   - `&`, `<`, `>` → HTML entities so the label's innerHTML renders them as text
+//   - `#` → #35; so user text cannot start a Mermaid entity sequence
+//   - `"` → #quot; so user text cannot terminate the Mermaid label string
+// `&` must be replaced first to avoid double-escaping the entities added below it.
+var mermaidReplacer = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	"#", "#35;",
+	`"`, "#quot;",
+)
 
 func mermaidEscape(s string) string { return mermaidReplacer.Replace(s) }
 
@@ -276,7 +285,7 @@ func buildMermaidDiagram(def *workflow.Definition) string {
 		label := name
 		if s.Description != "" {
 			label = fmt.Sprintf("%s<br/><span style='font-size:0.75em;opacity:0.7'>%s</span>",
-				name, mermaidEscape(html.EscapeString(s.Description)))
+				name, mermaidEscape(s.Description))
 		}
 		trigger := s.Trigger
 		if trigger == "" {

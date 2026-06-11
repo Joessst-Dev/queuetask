@@ -14,6 +14,9 @@ var _ = Describe("mermaidEscape", func() {
 		},
 		Entry("double quotes", `say "hi"`, `say #quot;hi#quot;`),
 		Entry("hash", `#heading`, `#35;heading`),
+		Entry("angle brackets", `a<b>c`, `a&lt;b&gt;c`),
+		Entry("ampersand", `a & b`, `a &amp; b`),
+		Entry("ampersand not double-escaped", `a&lt;b`, `a&amp;lt;b`),
 		Entry("both quote and hash", `both "and" #hash`, `both #quot;and#quot; #35;hash`),
 		Entry("no special chars", `normal-step`, `normal-step`),
 	)
@@ -33,6 +36,16 @@ var _ = Describe("buildMermaidDiagram", func() {
 		Expect(diagram).To(ContainSubstring("flowchart TD"))
 		Expect(diagram).To(ContainSubstring(`s0["step-one"]`))
 		Expect(diagram).To(ContainSubstring("classDef manual"))
+	})
+
+	It("HTML-escapes angle brackets in step names", func() {
+		def := &workflow.Definition{
+			Name:  "wf",
+			Steps: []workflow.StepDef{{Name: "a<b", Trigger: workflow.TriggerManual}},
+		}
+		diagram := buildMermaidDiagram(def)
+		Expect(diagram).To(ContainSubstring(`a&lt;b`))
+		Expect(diagram).NotTo(ContainSubstring(`a<b`))
 	})
 
 	It("escapes double-quotes in step names", func() {
