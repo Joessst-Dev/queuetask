@@ -12,8 +12,11 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -33,6 +36,7 @@ type Handler struct {
 	repo     *workflow.Repository
 	registry *workflow.Registry
 	tmpl     *template.Template
+	saveMu   sync.Mutex
 }
 
 type stepsData struct {
@@ -341,6 +345,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	g.Get("/canvas", h.Canvas)
 	g.Get("/builder", h.Builder)
 	g.Post("/builder/preview", h.BuilderPreview)
+	g.Post("/builder/save", h.BuilderSave)
 	g.Post("/builder/step", h.BuilderAddStep)
 	g.Post("/builder/trigger", h.BuilderAddTrigger)
 	g.Get("/workflows", h.Workflows)
@@ -501,6 +506,68 @@ func (h *Handler) BuilderPreview(c *fiber.Ctx) error {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
 	return h.render(c, "builder-preview", strings.TrimRight(string(data), "\n"))
+}
+
+type saveStatus struct {
+	Name string
+	Err  string
+}
+
+func (h *Handler) BuilderSave(c *fiber.Ctx) error {
+	def := parseBuilderForm(c)
+	if def.Name == "" {
+		return h.render(c, "builder-save-status", saveStatus{Err: "workflow name is required"})
+	}
+
+	// Guard against path traversal: the resolved filename must sit directly
+	// inside the workflows directory (no .. or embedded separators).
+	target := filepath.Join(h.registry.Dir(), def.Name+".yaml")
+	if filepath.Dir(filepath.Clean(target)) != filepath.Clean(h.registry.Dir()) {
+		return h.render(c, "builder-save-status", saveStatus{Err: "invalid workflow name"})
+	}
+
+	data, err := yaml.Marshal(def)
+	if err != nil {
+		return h.render(c, "builder-save-status", saveStatus{Err: err.Error()})
+	}
+
+	// Serialize all saves so concurrent requests don't interleave file I/O.
+	h.saveMu.Lock()
+	defer h.saveMu.Unlock()
+
+	// Snapshot the current file so we can restore it if Load fails.
+	prior, _ := os.ReadFile(target)
+
+	// Write atomically: stage in a temp file (no .yaml suffix → ignored by glob),
+	// then rename into place so readers never see a partial write.
+	tmp, err := os.CreateTemp(h.registry.Dir(), ".draft-")
+	if err != nil {
+		return h.render(c, "builder-save-status", saveStatus{Err: err.Error()})
+	}
+	tmpPath := tmp.Name()
+	_, writeErr := tmp.Write(data)
+	tmp.Close()
+	if writeErr != nil {
+		os.Remove(tmpPath)
+		return h.render(c, "builder-save-status", saveStatus{Err: writeErr.Error()})
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		os.Remove(tmpPath)
+		return h.render(c, "builder-save-status", saveStatus{Err: err.Error()})
+	}
+
+	if err := h.registry.Load(); err != nil {
+		// Restore the previous state: put back the original file or remove if it was new.
+		if prior != nil {
+			os.WriteFile(target, prior, 0o644) //nolint:errcheck
+		} else {
+			os.Remove(target)
+		}
+		return h.render(c, "builder-save-status", saveStatus{Err: err.Error()})
+	}
+
+	c.Set("HX-Trigger", "workflowSaved")
+	return h.render(c, "builder-save-status", saveStatus{Name: def.Name})
 }
 
 func (h *Handler) BuilderAddStep(c *fiber.Ctx) error {

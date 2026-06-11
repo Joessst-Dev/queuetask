@@ -70,6 +70,8 @@ func (r *Registry) Get(name string) (*Definition, bool) {
 	return def, ok
 }
 
+func (r *Registry) Dir() string { return r.dir }
+
 func (r *Registry) List() []*Definition {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
