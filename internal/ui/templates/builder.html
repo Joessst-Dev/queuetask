@@ -1,0 +1,230 @@
+{{define "builder-preview"}}
+<pre class="text-xs font-mono text-green-300/90 whitespace-pre leading-relaxed">{{.}}</pre>
+{{end}}
+
+{{define "builder-step-row"}}
+<div class="step-row rounded-lg border border-slate-700/50 bg-slate-800/30 p-4 mb-3">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Step {{.Idx}}</span>
+    <button type="button"
+            class="text-xs text-slate-600 hover:text-red-400 transition-colors cursor-pointer border-0 bg-transparent p-0"
+            onclick="this.closest('.step-row').remove(); htmx.trigger(document.getElementById('builder-form'), 'change')">
+      Remove
+    </button>
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Name <span class="text-red-400">*</span></label>
+      <input type="text" name="step_name_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="step-name">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Trigger</label>
+      <select name="step_trigger_{{.Idx}}"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+        <option value="manual">manual</option>
+        <option value="auto">auto</option>
+        <option value="queueti">queueti</option>
+        <option value="http">http</option>
+      </select>
+    </div>
+    <div class="col-span-2">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Description</label>
+      <input type="text" name="step_description_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="What this step does">
+    </div>
+    <div class="col-span-2">
+      <label class="block text-xs font-medium text-slate-500 mb-1">
+        Depends on
+        <span class="text-slate-600 font-normal">(comma-separated step names)</span>
+      </label>
+      <input type="text" name="step_depends_on_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="step-a, step-b">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">Publish to topic</label>
+      <input type="text" name="step_publish_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="my-topic">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">QueueTi topic</label>
+      <input type="text" name="step_queueti_topic_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="fulfillment-results">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">QueueTi consumer group</label>
+      <input type="text" name="step_queueti_group_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="queuetask-my-workflow">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">HTTP URL</label>
+      <input type="text" name="step_http_url_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="https://api.example.com/endpoint">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-500 mb-1">HTTP Method</label>
+      <select name="step_http_method_{{.Idx}}"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+        <option value="">—</option>
+        <option value="GET">GET</option>
+        <option value="POST">POST</option>
+        <option value="PUT">PUT</option>
+        <option value="PATCH">PATCH</option>
+        <option value="DELETE">DELETE</option>
+      </select>
+    </div>
+  </div>
+</div>
+<input type="hidden" id="next_step_idx" name="next_step_idx" value="{{.NextIdx}}" hx-swap-oob="true">
+{{end}}
+
+{{define "builder-trigger-row"}}
+<div class="trigger-row rounded-lg border border-slate-700/50 bg-slate-800/30 p-4 mb-3">
+  <div class="flex items-center justify-between mb-3">
+    <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Trigger {{.Idx}}</span>
+    <button type="button"
+            class="text-xs text-slate-600 hover:text-red-400 transition-colors cursor-pointer border-0 bg-transparent p-0"
+            onclick="this.closest('.trigger-row').remove(); htmx.trigger(document.getElementById('builder-form'), 'change')">
+      Remove
+    </button>
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    <div class="col-span-2">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Type <span class="text-red-400">*</span></label>
+      <select name="trigger_type_{{.Idx}}"
+              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+              onchange="(function(sel){var r=sel.closest('.trigger-row');r.querySelectorAll('.field-cron,.field-queueti').forEach(function(el){el.classList.add('hidden')});if(sel.value==='cron')r.querySelectorAll('.field-cron').forEach(function(el){el.classList.remove('hidden')});if(sel.value==='queueti')r.querySelectorAll('.field-queueti').forEach(function(el){el.classList.remove('hidden')});htmx.trigger(document.getElementById('builder-form'),'change')})(this)">
+        <option value="cron">cron</option>
+        <option value="webhook">webhook</option>
+        <option value="queueti">queueti</option>
+      </select>
+    </div>
+    <div class="col-span-2 field-cron">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Schedule <span class="text-slate-600 font-normal">(5-field cron expression)</span></label>
+      <input type="text" name="trigger_schedule_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="*/5 * * * *">
+    </div>
+    <div class="field-queueti hidden">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Topic</label>
+      <input type="text" name="trigger_topic_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="trigger-events">
+    </div>
+    <div class="field-queueti hidden">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Consumer Group</label>
+      <input type="text" name="trigger_group_{{.Idx}}"
+             class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+             placeholder="queuetask-my-workflow">
+    </div>
+  </div>
+</div>
+<input type="hidden" id="next_trigger_idx" name="next_trigger_idx" value="{{.NextIdx}}" hx-swap-oob="true">
+{{end}}
+
+<div class="h-full flex overflow-hidden">
+
+  {{/* ── Left: editor form ── */}}
+  <div class="flex-1 overflow-y-auto border-r border-slate-800">
+    <form id="builder-form"
+          hx-post="/ui/builder/preview"
+          hx-target="#yaml-preview"
+          hx-swap="innerHTML"
+          hx-trigger="load, change delay:400ms from:#builder-form, keyup delay:400ms from:#builder-form">
+
+      <div class="p-6 max-w-2xl">
+
+        {{/* ── Workflow metadata ── */}}
+        <div class="mb-8">
+          <h2 class="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Workflow</h2>
+          <div class="grid grid-cols-3 gap-3 mb-3">
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-slate-500 mb-1">Name <span class="text-red-400">*</span></label>
+              <input type="text" name="name"
+                     class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                     placeholder="my-workflow">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-500 mb-1">Version</label>
+              <input type="number" name="version" value="1" min="1"
+                     class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-blue-500">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-500 mb-1">Description</label>
+            <input type="text" name="description"
+                   class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                   placeholder="What this workflow does">
+          </div>
+        </div>
+
+        {{/* ── Instance Triggers ── */}}
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Instance Triggers</h2>
+            <button type="button"
+                    class="flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+                    hx-post="/ui/builder/trigger"
+                    hx-target="#triggers-list"
+                    hx-swap="beforeend"
+                    hx-include="[name='next_trigger_idx']"
+                    hx-disabled-elt="this">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Add Trigger
+            </button>
+          </div>
+          <div id="triggers-list"></div>
+          <input type="hidden" id="next_trigger_idx" name="next_trigger_idx" value="0">
+          <p class="text-xs text-slate-600 mt-2">Optional — automatically starts instances via cron, webhook, or queue-ti message.</p>
+        </div>
+
+        {{/* ── Steps ── */}}
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Steps</h2>
+            <button type="button"
+                    class="flex items-center gap-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+                    hx-post="/ui/builder/step"
+                    hx-target="#steps-list"
+                    hx-swap="beforeend"
+                    hx-include="[name='next_step_idx']"
+                    hx-disabled-elt="this">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Add Step
+            </button>
+          </div>
+          <div id="steps-list"></div>
+          <input type="hidden" id="next_step_idx" name="next_step_idx" value="0">
+        </div>
+
+      </div>
+    </form>
+  </div>
+
+  {{/* ── Right: YAML preview ── */}}
+  <div class="w-96 shrink-0 flex flex-col overflow-hidden bg-slate-900/50">
+    <div class="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between shrink-0">
+      <span class="text-xs font-bold uppercase tracking-wider text-slate-500">YAML</span>
+      <button type="button"
+              class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+              onclick="var pre=document.querySelector('#yaml-preview pre'); if(pre){ navigator.clipboard.writeText(pre.textContent); this.textContent='Copied!'; var b=this; setTimeout(function(){ b.textContent='Copy'; }, 1500); }">
+        Copy
+      </button>
+    </div>
+    <div id="yaml-preview" class="flex-1 overflow-y-auto p-4">
+      <p class="text-xs text-slate-600 italic">Fill in the form to generate YAML…</p>
+    </div>
+  </div>
+
+</div>

@@ -11,9 +11,12 @@ import (
 	"html/template"
 	"io/fs"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
@@ -44,6 +47,91 @@ type canvasStep struct {
 type canvasItem struct {
 	Instance *workflow.Instance
 	Steps    []canvasStep
+}
+
+// Builder output types — use omitempty so the generated YAML is clean.
+type builderHTTP struct {
+	Method string `yaml:"method,omitempty"`
+	URL    string `yaml:"url,omitempty"`
+}
+
+type builderStep struct {
+	Name               string       `yaml:"name"`
+	Description        string       `yaml:"description,omitempty"`
+	Trigger            string       `yaml:"trigger,omitempty"`
+	DependsOn          []string     `yaml:"depends_on,omitempty"`
+	PublishToTopic     string       `yaml:"publish_to_topic,omitempty"`
+	QueueTiTopic       string       `yaml:"queueti_topic,omitempty"`
+	QueueTiConsumerGrp string       `yaml:"queueti_consumer_group,omitempty"`
+	HTTP               *builderHTTP `yaml:"http,omitempty"`
+}
+
+type builderTrigger struct {
+	Type          string `yaml:"type"`
+	Schedule      string `yaml:"schedule,omitempty"`
+	Topic         string `yaml:"topic,omitempty"`
+	ConsumerGroup string `yaml:"consumer_group,omitempty"`
+}
+
+type builderDef struct {
+	Name        string           `yaml:"name"`
+	Version     int              `yaml:"version,omitempty"`
+	Description string           `yaml:"description,omitempty"`
+	Triggers    []builderTrigger `yaml:"triggers,omitempty"`
+	Steps       []builderStep    `yaml:"steps,omitempty"`
+}
+
+type builderRowData struct {
+	Idx     int
+	NextIdx int
+}
+
+const maxBuilderRows = 200
+
+func parseBuilderForm(c *fiber.Ctx) builderDef {
+	def := builderDef{Name: c.FormValue("name"), Description: c.FormValue("description")}
+	if v, _ := strconv.Atoi(c.FormValue("version")); v > 0 {
+		def.Version = v
+	}
+	for i := 0; i < maxBuilderRows; i++ {
+		if ttype := c.FormValue(fmt.Sprintf("trigger_type_%d", i)); ttype != "" {
+			def.Triggers = append(def.Triggers, builderTrigger{
+				Type:          ttype,
+				Schedule:      c.FormValue(fmt.Sprintf("trigger_schedule_%d", i)),
+				Topic:         c.FormValue(fmt.Sprintf("trigger_topic_%d", i)),
+				ConsumerGroup: c.FormValue(fmt.Sprintf("trigger_group_%d", i)),
+			})
+		}
+	}
+	for i := 0; i < maxBuilderRows; i++ {
+		name := c.FormValue(fmt.Sprintf("step_name_%d", i))
+		if name == "" {
+			continue
+		}
+		s := builderStep{
+			Name:               name,
+			Description:        c.FormValue(fmt.Sprintf("step_description_%d", i)),
+			Trigger:            c.FormValue(fmt.Sprintf("step_trigger_%d", i)),
+			PublishToTopic:     c.FormValue(fmt.Sprintf("step_publish_%d", i)),
+			QueueTiTopic:       c.FormValue(fmt.Sprintf("step_queueti_topic_%d", i)),
+			QueueTiConsumerGrp: c.FormValue(fmt.Sprintf("step_queueti_group_%d", i)),
+		}
+		if raw := c.FormValue(fmt.Sprintf("step_depends_on_%d", i)); raw != "" {
+			for _, dep := range strings.Split(raw, ",") {
+				if dep = strings.TrimSpace(dep); dep != "" {
+					s.DependsOn = append(s.DependsOn, dep)
+				}
+			}
+		}
+		if u := c.FormValue(fmt.Sprintf("step_http_url_%d", i)); u != "" {
+			s.HTTP = &builderHTTP{
+				URL:    u,
+				Method: c.FormValue(fmt.Sprintf("step_http_method_%d", i)),
+			}
+		}
+		def.Steps = append(def.Steps, s)
+	}
+	return def
 }
 
 func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
@@ -130,6 +218,10 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	})
 	g := app.Group("/ui")
 	g.Get("/canvas", h.Canvas)
+	g.Get("/builder", h.Builder)
+	g.Post("/builder/preview", h.BuilderPreview)
+	g.Post("/builder/step", h.BuilderAddStep)
+	g.Post("/builder/trigger", h.BuilderAddTrigger)
 	g.Get("/workflows", h.Workflows)
 	g.Post("/workflows/:name/start", h.StartInstance)
 	g.Get("/instances", h.Instances)
@@ -262,4 +354,27 @@ func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 		return h.renderTriggered(c, id)
 	}
 	return h.render(c, "steps.html", stepsData{Instance: inst, Steps: steps})
+}
+
+func (h *Handler) Builder(c *fiber.Ctx) error {
+	return h.render(c, "builder.html", nil)
+}
+
+func (h *Handler) BuilderPreview(c *fiber.Ctx) error {
+	def := parseBuilderForm(c)
+	data, err := yaml.Marshal(def)
+	if err != nil {
+		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
+	}
+	return h.render(c, "builder-preview", strings.TrimRight(string(data), "\n"))
+}
+
+func (h *Handler) BuilderAddStep(c *fiber.Ctx) error {
+	idx, _ := strconv.Atoi(c.FormValue("next_step_idx"))
+	return h.render(c, "builder-step-row", builderRowData{Idx: idx, NextIdx: idx + 1})
+}
+
+func (h *Handler) BuilderAddTrigger(c *fiber.Ctx) error {
+	idx, _ := strconv.Atoi(c.FormValue("next_trigger_idx"))
+	return h.render(c, "builder-trigger-row", builderRowData{Idx: idx, NextIdx: idx + 1})
 }

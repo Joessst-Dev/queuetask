@@ -17,6 +17,20 @@
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
     </svg>
     <h1 class="text-sm font-semibold tracking-widest">queuetask</h1>
+    <nav class="ml-auto flex items-center gap-4">
+      <button class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+              hx-get="/ui/canvas"
+              hx-target="#detail"
+              hx-swap="innerHTML">
+        Canvas
+      </button>
+      <button class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+              hx-get="/ui/builder"
+              hx-target="#detail"
+              hx-swap="innerHTML">
+        Builder
+      </button>
+    </nav>
   </header>
 
   <div class="flex flex-1 overflow-hidden">

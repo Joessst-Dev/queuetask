@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	. "github.com/onsi/ginkgo/v2"
@@ -71,7 +73,7 @@ var _ = Describe("UI Handler", func() {
 			b := body(resp)
 			Expect(b).To(ContainSubstring("queuetask"))
 			Expect(b).To(ContainSubstring("htmx.org"))
-			Expect(b).To(ContainSubstring("tailwindcss.com"))
+			Expect(b).To(ContainSubstring("tailwind.css"))
 			Expect(b).To(ContainSubstring(`id="instances-list"`))
 			Expect(b).To(ContainSubstring(`id="detail"`))
 		})
@@ -195,6 +197,144 @@ var _ = Describe("UI Handler", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 			Expect(body(resp)).To(ContainSubstring("invalid instance id"))
+		})
+	})
+
+	Describe("GET /ui/builder", func() {
+		It("renders the builder page with form and YAML panel", func() {
+			req := httptest.NewRequest(http.MethodGet, "/ui/builder", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			b := body(resp)
+			Expect(b).To(ContainSubstring("builder-form"))
+			Expect(b).To(ContainSubstring("yaml-preview"))
+		})
+	})
+
+	Describe("POST /ui/builder/preview", func() {
+		preview := func(form url.Values) string {
+			req := httptest.NewRequest(http.MethodPost, "/ui/builder/preview",
+				strings.NewReader(form.Encode()))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			return body(resp)
+		}
+
+		It("emits workflow name, version, and description", func() {
+			b := preview(url.Values{
+				"name": {"my-workflow"}, "version": {"2"}, "description": {"Test workflow"},
+			})
+			Expect(b).To(ContainSubstring("name: my-workflow"))
+			Expect(b).To(ContainSubstring("version: 2"))
+			Expect(b).To(ContainSubstring("description: Test workflow"))
+		})
+
+		It("includes steps with publish and queueti fields", func() {
+			b := preview(url.Values{
+				"name":              {"wf"},
+				"step_name_0":       {"receive-order"},
+				"step_trigger_0":    {"manual"},
+				"step_description_0": {"Accept the order"},
+				"step_name_1":       {"process-payment"},
+				"step_trigger_1":    {"auto"},
+				"step_depends_on_1": {"receive-order"},
+				"step_publish_1":    {"payment-events"},
+			})
+			Expect(b).To(ContainSubstring("name: receive-order"))
+			Expect(b).To(ContainSubstring("name: process-payment"))
+			Expect(b).To(ContainSubstring("- receive-order"))
+			Expect(b).To(ContainSubstring("publish_to_topic: payment-events"))
+		})
+
+		It("skips steps with an empty name", func() {
+			b := preview(url.Values{
+				"name":        {"wf"},
+				"step_name_0": {""},
+				"step_name_1": {"real-step"},
+			})
+			Expect(b).NotTo(ContainSubstring(`name: ""`))
+			Expect(b).To(ContainSubstring("name: real-step"))
+		})
+
+		It("trims whitespace in depends_on values", func() {
+			b := preview(url.Values{
+				"name":              {"wf"},
+				"step_name_0":       {"step-a"},
+				"step_name_1":       {"step-b"},
+				"step_depends_on_1": {" step-a , step-a "},
+			})
+			Expect(b).To(ContainSubstring("- step-a"))
+		})
+
+		It("omits http struct when url is empty", func() {
+			b := preview(url.Values{
+				"name":               {"wf"},
+				"step_name_0":        {"my-step"},
+				"step_http_url_0":    {""},
+				"step_http_method_0": {"POST"},
+			})
+			Expect(b).NotTo(ContainSubstring("http:"))
+		})
+
+		It("includes http struct when url is provided", func() {
+			b := preview(url.Values{
+				"name":               {"wf"},
+				"step_name_0":        {"call-api"},
+				"step_http_url_0":    {"https://api.example.com/run"},
+				"step_http_method_0": {"POST"},
+			})
+			Expect(b).To(ContainSubstring("url: https://api.example.com/run"))
+			Expect(b).To(ContainSubstring("method: POST"))
+		})
+
+		It("omits version when 0 or non-numeric", func() {
+			Expect(preview(url.Values{"name": {"wf"}, "version": {"0"}})).
+				NotTo(ContainSubstring("version:"))
+			Expect(preview(url.Values{"name": {"wf"}, "version": {"abc"}})).
+				NotTo(ContainSubstring("version:"))
+		})
+
+		It("includes queueti trigger fields", func() {
+			b := preview(url.Values{
+				"name":            {"wf"},
+				"trigger_type_0":  {"queueti"},
+				"trigger_topic_0": {"my-topic"},
+				"trigger_group_0": {"queuetask-wf"},
+			})
+			Expect(b).To(ContainSubstring("type: queueti"))
+			Expect(b).To(ContainSubstring("topic: my-topic"))
+			Expect(b).To(ContainSubstring("consumer_group: queuetask-wf"))
+		})
+	})
+
+	Describe("POST /ui/builder/step", func() {
+		It("returns a step row for the given index and increments the counter", func() {
+			req := httptest.NewRequest(http.MethodPost, "/ui/builder/step",
+				strings.NewReader("next_step_idx=3"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			b := body(resp)
+			Expect(b).To(ContainSubstring("step_name_3"))
+			Expect(b).To(ContainSubstring(`value="4"`))
+		})
+	})
+
+	Describe("POST /ui/builder/trigger", func() {
+		It("returns a trigger row for the given index and increments the counter", func() {
+			req := httptest.NewRequest(http.MethodPost, "/ui/builder/trigger",
+				strings.NewReader("next_trigger_idx=1"))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			b := body(resp)
+			Expect(b).To(ContainSubstring("trigger_type_1"))
+			Expect(b).To(ContainSubstring(`value="2"`))
 		})
 	})
 })
