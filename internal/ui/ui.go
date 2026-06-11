@@ -44,14 +44,14 @@ type stepsData struct {
 	Steps    []*workflow.StepExecution
 }
 
-type canvasStep struct {
+type runStep struct {
 	*workflow.StepExecution
 	Description string
 }
 
-type canvasItem struct {
+type runItem struct {
 	Instance *workflow.Instance
-	Steps    []canvasStep
+	Steps    []runStep
 }
 
 // Builder output types — use omitempty so the generated YAML is clean.
@@ -342,7 +342,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 		return c.Send(tailwindCSS)
 	})
 	g := app.Group("/ui")
-	g.Get("/canvas", h.Canvas)
+	g.Get("/runs", h.Runs)
 	g.Get("/builder", h.Builder)
 	g.Post("/builder/preview", h.BuilderPreview)
 	g.Post("/builder/save", h.BuilderSave)
@@ -389,16 +389,16 @@ func (h *Handler) Index(c *fiber.Ctx) error {
 	return h.render(c, "index.html", nil)
 }
 
-func (h *Handler) Canvas(c *fiber.Ctx) error {
+func (h *Handler) Runs(c *fiber.Ctx) error {
 	instances, err := h.repo.ListInstances(c.Context())
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	items := make([]canvasItem, 0, len(instances))
+	items := make([]runItem, 0, len(instances))
 	for _, inst := range instances {
 		rawSteps, err := h.repo.ListSteps(c.Context(), inst.ID)
 		if err != nil {
-			slog.Warn("canvas: listing steps", "instance_id", inst.ID, "error", err)
+			slog.Warn("runs: listing steps", "instance_id", inst.ID, "error", err)
 		}
 
 		// Merge descriptions from the workflow definition (not stored in DB).
@@ -409,13 +409,13 @@ func (h *Handler) Canvas(c *fiber.Ctx) error {
 			}
 		}
 
-		steps := make([]canvasStep, len(rawSteps))
+		steps := make([]runStep, len(rawSteps))
 		for i, s := range rawSteps {
-			steps[i] = canvasStep{StepExecution: s, Description: descs[s.StepName]}
+			steps[i] = runStep{StepExecution: s, Description: descs[s.StepName]}
 		}
-		items = append(items, canvasItem{Instance: inst, Steps: steps})
+		items = append(items, runItem{Instance: inst, Steps: steps})
 	}
-	return h.render(c, "canvas.html", items)
+	return h.render(c, "runs.html", items)
 }
 
 func (h *Handler) Workflows(c *fiber.Ctx) error {

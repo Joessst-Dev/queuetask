@@ -33,10 +33,10 @@
     <h1 class="text-sm font-semibold tracking-widest">queuetask</h1>
     <nav class="ml-auto flex items-center gap-4">
       <button class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
-              hx-get="/ui/canvas"
+              hx-get="/ui/runs"
               hx-target="#detail"
               hx-swap="innerHTML">
-        Canvas
+        Runs
       </button>
       <button class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
               hx-get="/ui/builder"
@@ -96,7 +96,7 @@
 
       function pathFromHash() {
         var h = window.location.hash.slice(1);
-        return h ? '/ui/' + h : '/ui/canvas';
+        return h ? '/ui/' + h : '/ui/runs';
       }
 
       // After each GET swap into #detail, keep the URL hash in sync with the view.
@@ -126,7 +126,7 @@
         htmx.ajax('GET', pathFromHash(), { target: '#detail', swap: 'innerHTML' });
       });
 
-      // Restore the last view from the hash on initial load, defaulting to canvas.
+      // Restore the last view from the hash on initial load, defaulting to runs.
       document.addEventListener('DOMContentLoaded', function () {
         htmx.ajax('GET', pathFromHash(), { target: '#detail', swap: 'innerHTML' });
       });
