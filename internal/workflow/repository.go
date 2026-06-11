@@ -148,6 +148,14 @@ func (r *Repository) CreateSteps(ctx context.Context, instanceID uuid.UUID, step
 				httpHeaders, _ = json.Marshal(s.HTTP.Headers)
 			}
 		}
+		var staticInput json.RawMessage
+		if s.Input != nil {
+			b, err := json.Marshal(s.Input)
+			if err != nil {
+				return fmt.Errorf("marshalling static_input for step %s: %w", s.Name, err)
+			}
+			staticInput = b
+		}
 		_, err := r.db.ExecContext(ctx,
 			`INSERT INTO queuetask.step_executions
 			 (instance_id, step_name, step_order, status, trigger_type, depends_on,
@@ -158,7 +166,7 @@ func (r *Repository) CreateSteps(ctx context.Context, instanceID uuid.UUID, step
 			pq.Array(coalesceSlice(s.DependsOn)),
 			nullStr(s.PublishToTopic), nullStr(s.QueueTiTopic), nullStr(s.QueueTiConsumerGrp),
 			nullStr(httpMethod), nullStr(httpURL), nullBytes(httpHeaders),
-			nullBytes(s.Input),
+			nullBytes(staticInput),
 		)
 		if err != nil {
 			return fmt.Errorf("inserting step %s: %w", s.Name, err)

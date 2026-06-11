@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -70,15 +69,15 @@ type HTTPDef struct {
 }
 
 type StepDef struct {
-	Name               string          `yaml:"name"`
-	Description        string          `yaml:"description"`
-	Trigger            TriggerType     `yaml:"trigger"`
-	DependsOn          []string        `yaml:"depends_on"`
-	Input              json.RawMessage `yaml:"input,omitempty"`
-	PublishToTopic     string          `yaml:"publish_to_topic"`
-	QueueTiTopic       string          `yaml:"queueti_topic"`
-	QueueTiConsumerGrp string          `yaml:"queueti_consumer_group"`
-	HTTP               *HTTPDef        `yaml:"http"`
+	Name               string      `yaml:"name"`
+	Description        string      `yaml:"description"`
+	Trigger            TriggerType `yaml:"trigger"`
+	DependsOn          []string    `yaml:"depends_on"`
+	Input              any         `yaml:"input,omitempty"`
+	PublishToTopic     string      `yaml:"publish_to_topic"`
+	QueueTiTopic       string      `yaml:"queueti_topic"`
+	QueueTiConsumerGrp string      `yaml:"queueti_consumer_group"`
+	HTTP               *HTTPDef    `yaml:"http"`
 }
 
 const (

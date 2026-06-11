@@ -59,6 +59,18 @@ steps:
     depends_on: [step-a, step-b]
 `
 
+const workflowWithStaticInput = `
+name: static-input-wf
+steps:
+  - name: step-a
+    trigger: manual
+  - name: step-b
+    trigger: auto
+    depends_on: [step-a]
+    input:
+      override: true
+`
+
 const workflowWithQueueTi = `
 name: queueti-wf
 steps:
@@ -229,6 +241,30 @@ var _ = Describe("Engine (extended)", func() {
 			Expect(engine.TriggerStep(ctx, inst.ID, "step-one", nil)).To(Succeed())
 
 			Expect(spy.calls()).To(BeEmpty())
+		})
+	})
+
+	Describe("static_input", func() {
+		It("overrides merged dependency output for an auto step", func() {
+			engine := loadWorkflow(workflowWithStaticInput)
+
+			inst, err := engine.StartInstance(ctx, "static-input-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// step-a output that would normally flow into step-b
+			Expect(engine.TriggerStep(ctx, inst.ID, "step-a", json.RawMessage(`{"from_dep":"ignored"}`))).To(Succeed())
+
+			steps, err := repo.ListSteps(ctx, inst.ID)
+			Expect(err).NotTo(HaveOccurred())
+			stepMap := make(map[string]*workflow.StepExecution)
+			for _, s := range steps {
+				stepMap[s.StepName] = s
+			}
+
+			// step-b is auto and completes immediately; its input must be the
+			// static value, not the merged output from step-a
+			Expect(stepMap["step-b"].Status).To(Equal(workflow.StatusCompleted))
+			Expect(stepMap["step-b"].Input).To(MatchJSON(`{"override":true}`))
 		})
 	})
 

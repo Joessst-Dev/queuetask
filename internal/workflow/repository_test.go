@@ -143,6 +143,20 @@ var _ = Describe("Repository", func() {
 			Expect(s.QueueTiGroup).To(Equal("my-group"))
 		})
 
+		It("CreateSteps persists static_input and round-trips through ListSteps", func() {
+			Expect(repo.CreateSteps(ctx, instID, []workflow.StepDef{
+				{
+					Name:    "s",
+					Trigger: workflow.TriggerAuto,
+					Input:   map[string]any{"order_type": "express"},
+				},
+			})).To(Succeed())
+
+			list, err := repo.ListSteps(ctx, instID)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(list[0].StaticInput).To(MatchJSON(`{"order_type":"express"}`))
+		})
+
 		It("GetStep returns error for non-existent step name", func() {
 			_, err := repo.GetStep(ctx, instID, "no-such-step")
 			Expect(err).To(HaveOccurred())
