@@ -70,6 +70,7 @@ type builderStep struct {
 type builderTrigger struct {
 	Type          string `yaml:"type"`
 	Schedule      string `yaml:"schedule,omitempty"`
+	Input         any    `yaml:"input,omitempty"`
 	Topic         string `yaml:"topic,omitempty"`
 	ConsumerGroup string `yaml:"consumer_group,omitempty"`
 }
@@ -106,12 +107,19 @@ func parseTriggerRows(c *fiber.Ctx) []builderTrigger {
 		if ttype == "" {
 			continue
 		}
-		triggers = append(triggers, builderTrigger{
+		t := builderTrigger{
 			Type:          ttype,
 			Schedule:      c.FormValue(fmt.Sprintf("trigger_schedule_%d", i)),
 			Topic:         c.FormValue(fmt.Sprintf("trigger_topic_%d", i)),
 			ConsumerGroup: c.FormValue(fmt.Sprintf("trigger_group_%d", i)),
-		})
+		}
+		if raw := c.FormValue(fmt.Sprintf("trigger_input_%d", i)); raw != "" {
+			var v any
+			if err := json.Unmarshal([]byte(raw), &v); err == nil {
+				t.Input = v
+			}
+		}
+		triggers = append(triggers, t)
 	}
 	return triggers
 }

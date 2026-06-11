@@ -148,6 +148,14 @@
       <input type="text" name="trigger_schedule_{{.Idx}}"
              class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
              placeholder="*/5 * * * *">
+      <p class="mt-1 text-xs text-slate-600">Standard 5-field expression (minute, hour, day-of-month, month, day-of-week). Example: <code class="text-slate-500">0 9 * * 1-5</code> runs at 09:00 on weekdays.</p>
+    </div>
+    <div class="col-span-2 field-cron">
+      <label class="block text-xs font-medium text-slate-500 mb-1">Static input <span class="text-slate-600 font-normal">(JSON, optional)</span></label>
+      <textarea name="trigger_input_{{.Idx}}" rows="3"
+                class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500 font-mono"
+                placeholder='{"key": "value"}'></textarea>
+      <p class="mt-1 text-xs text-slate-600">Optional JSON passed as the instance input every time this cron fires. Must be valid JSON if provided.</p>
     </div>
     <div class="field-queueti hidden">
       <label class="block text-xs font-medium text-slate-500 mb-1">Topic</label>
