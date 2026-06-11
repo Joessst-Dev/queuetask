@@ -200,6 +200,15 @@
 
   {{/* ── Left: editor form ── */}}
   <div class="flex-1 overflow-y-auto border-r border-slate-800">
+
+    <div id="draft-banner"
+         class="hidden mx-6 mt-4 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-400 flex items-center justify-between">
+      <span>Draft restored from a previous session.</span>
+      <button type="button"
+              class="text-amber-500 hover:text-amber-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+              onclick="discardDraft()">Discard</button>
+    </div>
+
     <form id="builder-form"
           hx-post="/ui/builder/preview"
           hx-target="#yaml-preview"
@@ -291,7 +300,7 @@
         </button>
         <button type="button"
                 class="text-xs font-medium text-slate-500 hover:text-slate-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
-                onclick="var pre=document.querySelector('#yaml-preview pre'); if(!pre) return; var name=(document.querySelector('[name=name]')||{}).value||'workflow'; var a=document.createElement('a'); a.href='data:text/yaml;charset=utf-8,'+encodeURIComponent(pre.textContent); a.download=name+'.yaml'; document.body.appendChild(a); a.click(); document.body.removeChild(a)">
+                onclick="var pre=document.querySelector('#yaml-preview pre'); if(!pre) return; var name=(document.querySelector('[name=name]')||{}).value||'workflow'; var a=document.createElement('a'); a.href='data:text/yaml;charset=utf-8,'+encodeURIComponent(pre.textContent); a.download=name+'.yaml'; document.body.appendChild(a); a.click(); document.body.removeChild(a); clearDraft();">
           Download
         </button>
       </div>
@@ -302,3 +311,81 @@
   </div>
 
 </div>
+
+<script>
+  (function () {
+    var DRAFT_KEY = 'queuetask:builder:draft';
+
+    function saveDraft() {
+      var form = document.getElementById('builder-form');
+      if (!form) return;
+      // Collect live .value for every named control (captures user input, select choices, textarea content).
+      var values = {};
+      Array.prototype.forEach.call(form.elements, function (el) {
+        if (el.name) values[el.name] = el.value;
+      });
+      // Store row HTML separately for structure / conditional-field visibility classes.
+      values.__stepsHTML    = (document.getElementById('steps-list')    || {}).innerHTML || '';
+      values.__triggersHTML = (document.getElementById('triggers-list') || {}).innerHTML || '';
+      try { localStorage.setItem(DRAFT_KEY, JSON.stringify(values)); } catch (e) {}
+    }
+
+    function clearDraft() {
+      try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+    }
+    window.clearDraft = clearDraft;
+
+    window.discardDraft = function () {
+      clearDraft();
+      htmx.ajax('GET', '/ui/builder', { target: '#detail', swap: 'innerHTML' });
+    };
+
+    function restoreDraft() {
+      var saved;
+      try { saved = JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch (e) {}
+      if (!saved) return false;
+
+      var form = document.getElementById('builder-form');
+      if (!form) return false;
+
+      // 1. Restore row structure (recreates DOM nodes with saved visibility class state).
+      var stepsEl    = document.getElementById('steps-list');
+      var triggersEl = document.getElementById('triggers-list');
+      if (stepsEl)    stepsEl.innerHTML    = saved.__stepsHTML    || '';
+      if (triggersEl) triggersEl.innerHTML = saved.__triggersHTML || '';
+
+      // 2. Set every field's live value (metadata, counters, step/trigger inputs + selects).
+      Object.keys(saved).forEach(function (key) {
+        if (key.charAt(0) === '_') return;
+        var el = form.querySelector('[name="' + key + '"]');
+        if (el) el.value = saved[key];
+      });
+
+      htmx.trigger(form, 'change');
+      return true;
+    }
+
+    var form = document.getElementById('builder-form');
+    if (form) {
+      var saveTimer;
+      function scheduleSave() {
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveDraft, 800);
+      }
+      // input: catches typing in text/textarea fields.
+      // change: catches select changes and synthetic change fired by Remove buttons.
+      form.addEventListener('input',  scheduleSave);
+      form.addEventListener('change', scheduleSave);
+      // htmx:afterSettle: save immediately when a row is appended.
+      form.addEventListener('htmx:afterSettle', function (evt) {
+        var id = evt.detail.target && evt.detail.target.id;
+        if (id === 'steps-list' || id === 'triggers-list') saveDraft();
+      });
+    }
+
+    if (restoreDraft()) {
+      var banner = document.getElementById('draft-banner');
+      if (banner) banner.classList.remove('hidden');
+    }
+  }());
+</script>
