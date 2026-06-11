@@ -6,6 +6,14 @@
   <title>queuetask</title>
   <link rel="stylesheet" href="/ui/static/tailwind.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    window.__mermaid = mermaid;
+    document.addEventListener('htmx:afterSettle', function() {
+      if (document.querySelector('.mermaid:not([data-processed])')) mermaid.run();
+    });
+  </script>
   <style>
     .htmx-request.btn-trigger, .htmx-request .btn-trigger { opacity: 0.4; pointer-events: none; }
   </style>

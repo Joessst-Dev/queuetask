@@ -10,12 +10,24 @@
       <div class="text-xs text-slate-500 mt-0.5">{{len .Triggers}} trigger{{if gt (len .Triggers) 1}}s{{end}}</div>
       {{end}}
     </div>
-    <button class="btn-trigger shrink-0 mt-0.5 px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-400/30 hover:border-blue-400/60 hover:bg-blue-400/10 rounded transition-colors cursor-pointer bg-transparent"
-            hx-post="/ui/workflows/{{.Name}}/start"
-            hx-target="#detail"
-            hx-swap="innerHTML">
-      Start
-    </button>
+    <div class="flex items-center gap-2 shrink-0 mt-0.5">
+      <button class="p-1 rounded text-slate-600 hover:text-slate-300 hover:bg-slate-800 transition-colors cursor-pointer border-0 bg-transparent"
+              title="View chart"
+              hx-get="/ui/workflows/{{.Name}}/chart"
+              hx-target="#detail"
+              hx-swap="innerHTML">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+      </button>
+      <button class="btn-trigger px-2 py-0.5 text-xs font-medium text-blue-400 hover:text-blue-300 border border-blue-400/30 hover:border-blue-400/60 hover:bg-blue-400/10 rounded transition-colors cursor-pointer bg-transparent"
+              hx-post="/ui/workflows/{{.Name}}/start"
+              hx-target="#detail"
+              hx-swap="innerHTML">
+        Start
+      </button>
+    </div>
   </div>
 </div>
 {{end}}

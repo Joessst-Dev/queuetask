@@ -241,6 +241,69 @@ func buildTemplateFuncMap() template.FuncMap {
 	}
 }
 
+type chartData struct {
+	Def     *workflow.Definition
+	Diagram string
+}
+
+// buildMermaidDiagram generates a Mermaid flowchart TD string for the given workflow definition.
+// Node IDs are index-based (s0, s1, …) to avoid special-character escaping issues.
+func buildMermaidDiagram(def *workflow.Definition) string {
+	if len(def.Steps) == 0 {
+		return ""
+	}
+
+	// build name → index map for edge references
+	idx := make(map[string]int, len(def.Steps))
+	for i, s := range def.Steps {
+		idx[s.Name] = i
+	}
+
+	var sb strings.Builder
+	sb.WriteString("flowchart TD\n")
+
+	// node definitions — shape encodes trigger type
+	for i, s := range def.Steps {
+		id := fmt.Sprintf("s%d", i)
+		label := s.Name
+		if s.Description != "" {
+			label = fmt.Sprintf("%s<br/><span style='font-size:0.75em;opacity:0.7'>%s</span>", s.Name, s.Description)
+		}
+		switch s.Trigger {
+		case workflow.TriggerAuto:
+			fmt.Fprintf(&sb, "  %s([\"%s\"])\n", id, label)
+		case workflow.TriggerQueueTi:
+			fmt.Fprintf(&sb, "  %s[(\"%s\")]\n", id, label)
+		case workflow.TriggerHTTP:
+			fmt.Fprintf(&sb, "  %s[[\"%s\"]]\n", id, label)
+		default: // manual
+			fmt.Fprintf(&sb, "  %s[\"%s\"]\n", id, label)
+		}
+	}
+
+	// edges from depends_on
+	for i, s := range def.Steps {
+		for _, dep := range s.DependsOn {
+			if di, ok := idx[dep]; ok {
+				fmt.Fprintf(&sb, "  s%d --> s%d\n", di, i)
+			}
+		}
+	}
+
+	// class assignments
+	for i, s := range def.Steps {
+		fmt.Fprintf(&sb, "  class s%d %s\n", i, string(s.Trigger))
+	}
+
+	// class definitions — colours match badgeClasses palette
+	sb.WriteString("  classDef manual fill:#2e1065,stroke:#7c3aed,color:#e9d5ff\n")
+	sb.WriteString("  classDef auto fill:#022c22,stroke:#059669,color:#d1fae5\n")
+	sb.WriteString("  classDef queueti fill:#082f49,stroke:#0ea5e9,color:#e0f2fe\n")
+	sb.WriteString("  classDef http fill:#431407,stroke:#ea580c,color:#fed7aa\n")
+
+	return sb.String()
+}
+
 func (h *Handler) RegisterRoutes(app *fiber.App) {
 	app.Get("/", h.Index)
 	app.Get("/ui/static/tailwind.css", func(c *fiber.Ctx) error {
@@ -255,6 +318,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	g.Post("/builder/step", h.BuilderAddStep)
 	g.Post("/builder/trigger", h.BuilderAddTrigger)
 	g.Get("/workflows", h.Workflows)
+	g.Get("/workflows/:name/chart", h.WorkflowChart)
 	g.Post("/workflows/:name/start", h.StartInstance)
 	g.Get("/instances", h.Instances)
 	g.Get("/instances/:id", h.Steps)
@@ -389,6 +453,15 @@ func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 		return h.renderTriggered(c, id)
 	}
 	return h.render(c, "steps.html", stepsData{Instance: inst, Steps: steps})
+}
+
+func (h *Handler) WorkflowChart(c *fiber.Ctx) error {
+	name := c.Params("name")
+	def, ok := h.registry.Get(name)
+	if !ok {
+		return h.renderError(c, fiber.StatusNotFound, "workflow not found")
+	}
+	return h.render(c, "chart.html", chartData{Def: def, Diagram: buildMermaidDiagram(def)})
 }
 
 func (h *Handler) Builder(c *fiber.Ctx) error {
