@@ -20,6 +20,8 @@
   </script>
   <style>
     .htmx-request.btn-trigger, .htmx-request .btn-trigger { opacity: 0.4; pointer-events: none; }
+    .mermaid:not([data-processed]) { opacity: 0; }
+    .mermaid[data-processed] { opacity: 1; transition: opacity 0.15s ease-in; }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 h-screen flex flex-col font-sans antialiased">
