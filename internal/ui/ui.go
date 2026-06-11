@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -246,8 +247,14 @@ type chartData struct {
 	Diagram string
 }
 
+// mermaidEscape escapes characters that would break a Mermaid quoted label.
+// `"` terminates the label string; `#` starts a Mermaid entity sequence.
+var mermaidReplacer = strings.NewReplacer("#", "#35;", `"`, "#quot;")
+
+func mermaidEscape(s string) string { return mermaidReplacer.Replace(s) }
+
 // buildMermaidDiagram generates a Mermaid flowchart TD string for the given workflow definition.
-// Node IDs are index-based (s0, s1, …) to avoid special-character escaping issues.
+// Node IDs are index-based (s0, s1, …) to avoid special-character escaping issues with step names.
 func buildMermaidDiagram(def *workflow.Definition) string {
 	if len(def.Steps) == 0 {
 		return ""
@@ -265,11 +272,17 @@ func buildMermaidDiagram(def *workflow.Definition) string {
 	// node definitions — shape encodes trigger type
 	for i, s := range def.Steps {
 		id := fmt.Sprintf("s%d", i)
-		label := s.Name
+		name := mermaidEscape(s.Name)
+		label := name
 		if s.Description != "" {
-			label = fmt.Sprintf("%s<br/><span style='font-size:0.75em;opacity:0.7'>%s</span>", s.Name, s.Description)
+			label = fmt.Sprintf("%s<br/><span style='font-size:0.75em;opacity:0.7'>%s</span>",
+				name, mermaidEscape(html.EscapeString(s.Description)))
 		}
-		switch s.Trigger {
+		trigger := s.Trigger
+		if trigger == "" {
+			trigger = workflow.TriggerManual
+		}
+		switch trigger {
 		case workflow.TriggerAuto:
 			fmt.Fprintf(&sb, "  %s([\"%s\"])\n", id, label)
 		case workflow.TriggerQueueTi:
@@ -292,7 +305,11 @@ func buildMermaidDiagram(def *workflow.Definition) string {
 
 	// class assignments
 	for i, s := range def.Steps {
-		fmt.Fprintf(&sb, "  class s%d %s\n", i, string(s.Trigger))
+		trigger := s.Trigger
+		if trigger == "" {
+			trigger = workflow.TriggerManual
+		}
+		fmt.Fprintf(&sb, "  class s%d %s\n", i, string(trigger))
 	}
 
 	// class definitions — colours match badgeClasses palette
