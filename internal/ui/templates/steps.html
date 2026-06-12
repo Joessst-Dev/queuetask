@@ -1,4 +1,4 @@
-<div class="p-6">
+<div class="p-4 md:p-6">
 <div class="mb-5">
   <button class="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mb-4 cursor-pointer border-0 bg-transparent p-0"
           hx-get="/ui/runs"
@@ -17,6 +17,7 @@
 {{if not .Steps}}
 <p class="text-slate-500 text-sm px-4">No steps found.</p>
 {{else}}
+<div class="overflow-x-auto">
 <table class="w-full text-sm border-collapse">
   <thead>
     <tr>
@@ -50,5 +51,6 @@
     {{end}}
   </tbody>
 </table>
+</div>
 {{end}}
 </div>

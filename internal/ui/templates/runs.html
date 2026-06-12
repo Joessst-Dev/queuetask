@@ -65,10 +65,10 @@
     {{/* Hidden input: carries the comma-joined status values for hx-include */}}
     <input type="hidden" id="rf-status" name="status" value="{{.Filter.StatusesStr}}">
 
-    <div class="px-8 py-5 space-y-4">
+    <div class="px-4 md:px-8 py-4 md:py-5 space-y-4">
 
       {{/* Row 1 — Status */}}
-      <div class="flex items-center gap-4">
+      <div class="flex flex-wrap items-center gap-3">
         <span class="text-xs font-medium text-slate-400 w-20 shrink-0">Status</span>
         <div class="flex items-center gap-2">
           <button type="button" data-rf-chip="pending"
@@ -95,7 +95,7 @@
       </div>
 
       {{/* Row 2 — Workflow + date range + clear */}}
-      <div class="flex items-center gap-4">
+      <div class="flex flex-wrap items-center gap-3">
         <span class="text-xs font-medium text-slate-400 w-20 shrink-0">Workflow</span>
         <select id="rf-workflow" name="workflow" onchange="applyRunsFilter()"
                 class="bg-slate-900 border border-slate-700 rounded text-xs text-slate-300 px-3 py-1.5 min-w-[180px] cursor-pointer focus:outline-none focus:border-slate-500 transition-colors hover:border-slate-500">
