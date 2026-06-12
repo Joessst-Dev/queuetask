@@ -482,7 +482,14 @@
       var ph       = channel === 'email' ? 'user@example.com' : '+15550001234';
       var container = document.getElementById(listId);
       if (!container) return;
-      var idx = container.querySelectorAll('input').length;
+      // Use max existing index + 1 (not input count) so removing a middle row
+      // then adding a new one never reuses an existing field name.
+      var maxIdx = -1;
+      container.querySelectorAll('input[name]').forEach(function (el) {
+        var m = el.name.match(/_(\d+)$/);
+        if (m) maxIdx = Math.max(maxIdx, parseInt(m[1], 10));
+      });
+      var idx = maxIdx + 1;
       var row = document.createElement('div');
       row.className = 'notif-recipient-row flex items-center gap-2';
       row.innerHTML =

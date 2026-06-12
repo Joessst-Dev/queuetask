@@ -171,9 +171,9 @@ type builderTrigger struct {
 }
 
 type builderNotification struct {
-	On    []string             `yaml:"on,omitempty"`
-	Email *builderEmailTarget  `yaml:"email,omitempty"`
-	SMS   *builderSMSTarget    `yaml:"sms,omitempty"`
+	On    []string            `yaml:"on,omitempty"`
+	Email *builderEmailTarget `yaml:"email,omitempty"`
+	SMS   *builderSMSTarget   `yaml:"sms,omitempty"`
 }
 
 type builderEmailTarget struct {
@@ -185,12 +185,12 @@ type builderSMSTarget struct {
 }
 
 type builderDef struct {
-	Name          string                `yaml:"name"`
-	Version       int                   `yaml:"version,omitempty"`
-	Description   string                `yaml:"description,omitempty"`
-	Triggers      []builderTrigger      `yaml:"triggers,omitempty"`
-	Steps         []builderStep         `yaml:"steps,omitempty"`
-	Notifications *builderNotification  `yaml:"notifications,omitempty"`
+	Name          string               `yaml:"name"`
+	Version       int                  `yaml:"version,omitempty"`
+	Description   string               `yaml:"description,omitempty"`
+	Triggers      []builderTrigger     `yaml:"triggers,omitempty"`
+	Steps         []builderStep        `yaml:"steps,omitempty"`
+	Notifications *builderNotification `yaml:"notifications,omitempty"`
 }
 
 type builderRowData struct {
@@ -207,29 +207,40 @@ func parseBuilderForm(c *fiber.Ctx) builderDef {
 	}
 	def.Triggers = parseTriggerRows(c)
 	def.Steps = parseStepRows(c)
-	def.Notifications = parseNotification(c)
+	def.Notifications = parseNotification(func(key string) string { return c.FormValue(key) })
 	return def
 }
 
-func parseNotification(c *fiber.Ctx) *builderNotification {
+// notifFieldToEvent maps builder checkbox field names to the canonical dotted
+// event type strings used by the notification engine. Explicit rather than
+// substring-derived so renames on either side are caught at compile time.
+var notifFieldToEvent = map[string]string{
+	"notif_on_step_waiting_manual": "step.waiting_manual",
+	"notif_on_instance_completed":  "instance.completed",
+	"notif_on_instance_failed":     "instance.failed",
+}
+
+// parseNotification reads notification config from a form-value getter.
+// Accepting a getter (rather than *fiber.Ctx) makes the function unit-testable
+// without a Fiber setup.
+func parseNotification(formValue func(string) string) *builderNotification {
 	var on []string
 	for _, key := range []string{"notif_on_step_waiting_manual", "notif_on_instance_completed", "notif_on_instance_failed"} {
-		if c.FormValue(key) == "on" {
-			// key suffix after "notif_on_" is the event name
-			on = append(on, key[len("notif_on_"):])
+		if formValue(key) == "on" {
+			on = append(on, notifFieldToEvent[key])
 		}
 	}
 
 	var emailTo []string
 	for i := range maxBuilderRows {
-		if v := c.FormValue(fmt.Sprintf("notif_email_to_%d", i)); v != "" {
+		if v := formValue(fmt.Sprintf("notif_email_to_%d", i)); v != "" {
 			emailTo = append(emailTo, v)
 		}
 	}
 
 	var smsTo []string
 	for i := range maxBuilderRows {
-		if v := c.FormValue(fmt.Sprintf("notif_sms_to_%d", i)); v != "" {
+		if v := formValue(fmt.Sprintf("notif_sms_to_%d", i)); v != "" {
 			smsTo = append(smsTo, v)
 		}
 	}
@@ -397,6 +408,7 @@ type chartData struct {
 //   - `&`, `<`, `>` → HTML entities so the label's innerHTML renders them as text
 //   - `#` → #35; so user text cannot start a Mermaid entity sequence
 //   - `"` → #quot; so user text cannot terminate the Mermaid label string
+//
 // `&` must be replaced first to avoid double-escaping the entities added below it.
 var mermaidReplacer = strings.NewReplacer(
 	"&", "&amp;",
