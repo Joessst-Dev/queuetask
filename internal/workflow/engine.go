@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 )
 
@@ -76,22 +78,70 @@ type Engine struct {
 	registry    *Registry
 	publisher   publisher.Publisher
 	poller      *Poller
+	notifier    notify.Notifier
 	httpClient  HTTPDoer
 	ssrfEnabled bool
 }
 
-func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller) *Engine {
+func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller, notifier notify.Notifier) *Engine {
 	return &Engine{
 		repo:      repo,
 		registry:  registry,
 		publisher: pub,
 		poller:    poller,
+		notifier:  notifier,
 		httpClient: &http.Client{
 			Timeout:       httpDefaultTimeout,
 			CheckRedirect: ssrfRedirectCheck,
 		},
 		ssrfEnabled: true,
 	}
+}
+
+// convertNotifConfig maps a workflow-definition notification config to the
+// notify package's runtime config type.
+func convertNotifConfig(n *WorkflowNotification) *notify.WorkflowNotifConfig {
+	cfg := &notify.WorkflowNotifConfig{On: n.On}
+	if n.Email != nil {
+		cfg.Email = &notify.EmailTarget{To: n.Email.To}
+	}
+	if n.SMS != nil {
+		cfg.SMS = &notify.SMSTarget{To: n.SMS.To}
+	}
+	return cfg
+}
+
+// dispatchNotification fires an async notification for a workflow lifecycle event.
+// It fetches the instance and definition in a goroutine so the caller is never
+// blocked by notification delivery. Events not listed in the workflow's on: are
+// skipped before the goroutine calls the notifier, so spy/test notifiers only see
+// events the workflow actually subscribes to.
+func (e *Engine) dispatchNotification(instanceID uuid.UUID, eventType notify.EventType, stepName string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		inst, err := e.repo.GetInstance(ctx, instanceID)
+		if err != nil {
+			slog.Warn("notify: failed to get instance", "error", err)
+			return
+		}
+		def, ok := e.registry.Get(inst.WorkflowName)
+		if !ok || def.Notifications == nil {
+			return
+		}
+		if !slices.Contains(def.Notifications.On, string(eventType)) {
+			return
+		}
+		_ = e.notifier.Notify(ctx, notify.Event{
+			Type:         eventType,
+			WorkflowName: inst.WorkflowName,
+			InstanceID:   instanceID,
+			StepName:     stepName,
+			Timestamp:    time.Now().UTC(),
+			Config:       convertNotifConfig(def.Notifications),
+		})
+	}()
 }
 
 // SetHTTPClient replaces the HTTP client used for http-trigger steps.
@@ -172,10 +222,18 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 	allDone, anyFailed := workflowState(steps)
 
 	if anyFailed {
-		return e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceFailed)
+		if err := e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceFailed); err != nil {
+			return err
+		}
+		e.dispatchNotification(instanceID, notify.EventInstanceFailed, "")
+		return nil
 	}
 	if allDone {
-		return e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceCompleted)
+		if err := e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceCompleted); err != nil {
+			return err
+		}
+		e.dispatchNotification(instanceID, notify.EventInstanceCompleted, "")
+		return nil
 	}
 
 	for _, s := range steps {
@@ -196,6 +254,7 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusWaitingManual, mergedInput, ""); err != nil {
 				return err
 			}
+			e.dispatchNotification(instanceID, notify.EventStepWaitingManual, s.StepName)
 
 		case TriggerAuto:
 			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusRunning, mergedInput, ""); err != nil {

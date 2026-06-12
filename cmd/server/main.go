@@ -17,6 +17,7 @@ import (
 	"github.com/Joessst-Dev/queuetask/internal/api"
 	"github.com/Joessst-Dev/queuetask/internal/config"
 	"github.com/Joessst-Dev/queuetask/internal/db"
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/ui"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
@@ -77,8 +78,56 @@ func main() {
 		poller = workflow.NewPoller(qClient)
 	}
 
+	var notifier notify.Notifier = notify.Noop{}
+	if cfg.Notifications.Email.Provider != "" || cfg.Notifications.SMS.Provider != "" {
+		var emailSender notify.EmailSender
+		switch cfg.Notifications.Email.Provider {
+		case "smtp":
+			emailSender = notify.NewSMTPSender(
+				cfg.Notifications.Email.SMTP.Host,
+				cfg.Notifications.Email.SMTP.Port,
+				cfg.Notifications.Email.SMTP.Username,
+				cfg.Notifications.Email.SMTP.Password,
+				cfg.Notifications.Email.SMTP.From,
+			)
+		case "sendgrid":
+			emailSender = notify.NewSendGridSender(
+				cfg.Notifications.Email.SendGrid.APIKey,
+				cfg.Notifications.Email.SendGrid.From,
+			)
+		case "mailgun":
+			emailSender = notify.NewMailgunSender(
+				cfg.Notifications.Email.Mailgun.APIKey,
+				cfg.Notifications.Email.Mailgun.Domain,
+				cfg.Notifications.Email.Mailgun.From,
+			)
+		default:
+			slog.Warn("notifications: unknown email provider, email disabled",
+				"provider", cfg.Notifications.Email.Provider)
+		}
+		var smsSender notify.SMSSender
+		switch cfg.Notifications.SMS.Provider {
+		case "twilio":
+			smsSender = notify.NewTwilioSender(
+				cfg.Notifications.SMS.Twilio.AccountSID,
+				cfg.Notifications.SMS.Twilio.AuthToken,
+				cfg.Notifications.SMS.Twilio.From,
+			)
+		case "vonage":
+			smsSender = notify.NewVonageSender(
+				cfg.Notifications.SMS.Vonage.APIKey,
+				cfg.Notifications.SMS.Vonage.APISecret,
+				cfg.Notifications.SMS.Vonage.From,
+			)
+		default:
+			slog.Warn("notifications: unknown SMS provider, SMS disabled",
+				"provider", cfg.Notifications.SMS.Provider)
+		}
+		notifier = notify.NewWorkflowNotifier(emailSender, smsSender)
+	}
+
 	repo := workflow.NewRepository(database)
-	engine := workflow.NewEngine(repo, registry, pub, poller)
+	engine := workflow.NewEngine(repo, registry, pub, poller, notifier)
 	if poller != nil {
 		poller.SetEngine(engine)
 	}
@@ -109,7 +158,7 @@ func main() {
 		instancePoller.Sync(registry.List())
 	}
 
-	handler := api.NewHandler(engine, registry, repo)
+	handler := api.NewHandler(engine, registry, repo, notifier)
 
 	uiHandler, err := ui.NewHandler(engine, repo, registry)
 	if err != nil {

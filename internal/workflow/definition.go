@@ -48,18 +48,37 @@ const (
 // WorkflowTrigger defines an automatic instance-creation trigger.
 type WorkflowTrigger struct {
 	Type          InstanceTriggerType `yaml:"type"`
-	Schedule      string              `yaml:"schedule"`        // cron: standard 5-field expression
-	Input         any                 `yaml:"input"`           // cron: static input marshalled to JSON
-	Topic         string              `yaml:"topic"`           // queueti: topic to consume
-	ConsumerGroup string              `yaml:"consumer_group"`  // queueti: consumer group name
+	Schedule      string              `yaml:"schedule"`       // cron: standard 5-field expression
+	Input         any                 `yaml:"input"`          // cron: static input marshalled to JSON
+	Topic         string              `yaml:"topic"`          // queueti: topic to consume
+	ConsumerGroup string              `yaml:"consumer_group"` // queueti: consumer group name
+}
+
+// WorkflowNotification declares which lifecycle events should trigger
+// notifications and who to contact.
+type WorkflowNotification struct {
+	On    []string           `yaml:"on"`
+	Email *NotifyEmailTarget `yaml:"email"`
+	SMS   *NotifySMSTarget   `yaml:"sms"`
+}
+
+// NotifyEmailTarget lists the email addresses to receive notifications.
+type NotifyEmailTarget struct {
+	To []string `yaml:"to"`
+}
+
+// NotifySMSTarget lists the phone numbers to receive SMS notifications.
+type NotifySMSTarget struct {
+	To []string `yaml:"to"`
 }
 
 type Definition struct {
-	Name        string            `yaml:"name"`
-	Version     int               `yaml:"version"`
-	Description string            `yaml:"description"`
-	Triggers    []WorkflowTrigger `yaml:"triggers"`
-	Steps       []StepDef         `yaml:"steps"`
+	Name          string                `yaml:"name"`
+	Version       int                   `yaml:"version"`
+	Description   string                `yaml:"description"`
+	Triggers      []WorkflowTrigger     `yaml:"triggers"`
+	Steps         []StepDef             `yaml:"steps"`
+	Notifications *WorkflowNotification `yaml:"notifications"`
 }
 
 type HTTPDef struct {

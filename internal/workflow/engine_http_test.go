@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
@@ -49,7 +50,7 @@ var _ = Describe("Engine — HTTP trigger", func() {
 		writeWorkflowFile(tmpDir, yaml)
 		reg := workflow.NewRegistry(tmpDir)
 		Expect(reg.Load()).To(Succeed())
-		return workflow.NewEngine(repo, reg, publisher.Noop{}, nil), reg
+		return workflow.NewEngine(repo, reg, publisher.Noop{}, nil, notify.Noop{}), reg
 	}
 
 	Describe("successful HTTP call", func() {

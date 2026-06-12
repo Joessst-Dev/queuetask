@@ -12,6 +12,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/Joessst-Dev/queuetask/internal/api"
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
@@ -20,8 +21,8 @@ func newTestApp() *fiber.App {
 	repo := workflow.NewRepository(testDB)
 	registry := workflow.NewRegistry(testWorkflowDir)
 	Expect(registry.Load()).To(Succeed())
-	engine := workflow.NewEngine(repo, registry, publisher.Noop{}, nil)
-	h := api.NewHandler(engine, registry, repo)
+	engine := workflow.NewEngine(repo, registry, publisher.Noop{}, nil, notify.Noop{})
+	h := api.NewHandler(engine, registry, repo, notify.Noop{})
 	app := fiber.New(fiber.Config{
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError

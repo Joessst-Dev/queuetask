@@ -6,6 +6,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
@@ -25,10 +26,11 @@ type Handler struct {
 	engine   *workflow.Engine
 	registry *workflow.Registry
 	repo     *workflow.Repository
+	notifier notify.Notifier
 }
 
-func NewHandler(engine *workflow.Engine, registry *workflow.Registry, repo *workflow.Repository) *Handler {
-	return &Handler{engine: engine, registry: registry, repo: repo}
+func NewHandler(engine *workflow.Engine, registry *workflow.Registry, repo *workflow.Repository, notifier notify.Notifier) *Handler {
+	return &Handler{engine: engine, registry: registry, repo: repo, notifier: notifier}
 }
 
 func (h *Handler) Health(c *fiber.Ctx) error {
@@ -170,4 +172,25 @@ func (h *Handler) TriggerStep(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(steps)
+}
+
+// TestNotification sends a test notification to the supplied email/SMS addresses
+// and returns any delivery errors synchronously so operators can verify credentials.
+func (h *Handler) TestNotification(c *fiber.Ctx) error {
+	var body struct {
+		Email []string `json:"email"`
+		SMS   []string `json:"sms"`
+	}
+	// Treat a missing or empty body as a valid empty request (no recipients).
+	_ = c.BodyParser(&body)
+
+	t, ok := h.notifier.(notify.Tester)
+	if !ok {
+		// Notifier does not support synchronous testing (e.g. Noop).
+		return c.SendStatus(fiber.StatusNoContent)
+	}
+	if err := t.Test(c.Context(), body.Email, body.SMS); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+	}
+	return c.SendStatus(fiber.StatusNoContent)
 }

@@ -17,4 +17,6 @@ func RegisterRoutes(app *fiber.App, h *Handler) {
 	v1.Get("/instances/:id", h.GetInstance)
 	v1.Get("/instances/:id/steps", h.ListSteps)
 	v1.Post("/instances/:id/steps/:step/trigger", h.TriggerStep)
+
+	v1.Post("/notifications/test", h.TestNotification)
 }

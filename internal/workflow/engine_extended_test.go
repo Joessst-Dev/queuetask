@@ -5,13 +5,34 @@ import (
 	"encoding/json"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
+
+// spyNotifier records every Notify call so tests can assert on dispatched events.
+type spyNotifier struct {
+	mu     sync.Mutex
+	events []notify.Event
+}
+
+func (s *spyNotifier) Notify(_ context.Context, e notify.Event) error {
+	s.mu.Lock()
+	s.events = append(s.events, e)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *spyNotifier) calls() []notify.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]notify.Event(nil), s.events...)
+}
 
 // spyPublisher records every Publish call so tests can assert on it.
 type spyPublisher struct {
@@ -80,6 +101,43 @@ steps:
     queueti_consumer_group: my-group
 `
 
+const workflowWithNotifyManual = `
+name: notify-manual-wf
+steps:
+  - name: step-one
+    trigger: manual
+notifications:
+  on: ["step.waiting_manual"]
+  email:
+    to: ["test@example.com"]
+`
+
+const workflowWithNotifyCompleted = `
+name: notify-completed-wf
+steps:
+  - name: step-one
+    trigger: manual
+notifications:
+  on: ["instance.completed"]
+  email:
+    to: ["test@example.com"]
+`
+
+// workflowWithNotifyFailed uses an SSRF-blocked literal IP to trigger an
+// immediate HTTP step failure without needing a real server.
+const workflowWithNotifyFailed = `
+name: notify-fail-wf
+steps:
+  - name: fail-step
+    trigger: http
+    http:
+      url: http://10.0.0.1/api
+notifications:
+  on: ["instance.failed"]
+  email:
+    to: ["test@example.com"]
+`
+
 var _ = Describe("Engine (extended)", func() {
 	var (
 		ctx      context.Context
@@ -110,7 +168,7 @@ var _ = Describe("Engine (extended)", func() {
 		registry = workflow.NewRegistry(tmpDir)
 		Expect(registry.Load()).To(Succeed())
 		spy := &spyPublisher{}
-		return workflow.NewEngine(repo, registry, spy, nil)
+		return workflow.NewEngine(repo, registry, spy, nil, notify.Noop{})
 	}
 
 	loadWorkflowWithSpy := func(yaml string) (*workflow.Engine, *spyPublisher) {
@@ -118,7 +176,15 @@ var _ = Describe("Engine (extended)", func() {
 		registry = workflow.NewRegistry(tmpDir)
 		Expect(registry.Load()).To(Succeed())
 		spy := &spyPublisher{}
-		return workflow.NewEngine(repo, registry, spy, nil), spy
+		return workflow.NewEngine(repo, registry, spy, nil, notify.Noop{}), spy
+	}
+
+	loadWorkflowWithNotifySpy := func(yaml string) (*workflow.Engine, *spyNotifier) {
+		writeWorkflowFile(tmpDir, yaml)
+		registry = workflow.NewRegistry(tmpDir)
+		Expect(registry.Load()).To(Succeed())
+		notifySpy := &spyNotifier{}
+		return workflow.NewEngine(repo, registry, &spyPublisher{}, nil, notifySpy), notifySpy
 	}
 
 	Describe("input flow", func() {
@@ -284,6 +350,43 @@ var _ = Describe("Engine (extended)", func() {
 
 			err := engine.TriggerStep(ctx, uuid.New(), "step-one", nil)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("notifications", func() {
+		It("dispatches EventStepWaitingManual when a manual step transitions", func() {
+			engine, spy := loadWorkflowWithNotifySpy(workflowWithNotifyManual)
+
+			_, err := engine.StartInstance(ctx, "notify-manual-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(spy.calls).WithTimeout(2 * time.Second).Should(HaveLen(1))
+			Expect(spy.calls()[0].Type).To(Equal(notify.EventStepWaitingManual))
+			Expect(spy.calls()[0].StepName).To(Equal("step-one"))
+		})
+
+		It("dispatches EventInstanceCompleted when all steps complete", func() {
+			engine, spy := loadWorkflowWithNotifySpy(workflowWithNotifyCompleted)
+
+			inst, err := engine.StartInstance(ctx, "notify-completed-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(engine.TriggerStep(ctx, inst.ID, "step-one", nil)).To(Succeed())
+
+			Eventually(spy.calls).WithTimeout(2 * time.Second).Should(HaveLen(1))
+			Expect(spy.calls()[0].Type).To(Equal(notify.EventInstanceCompleted))
+		})
+
+		It("dispatches EventInstanceFailed when a step fails", func() {
+			// The SSRF-blocked IP causes the HTTP step to fail synchronously
+			// inside StartInstance, triggering the failed-instance notification path.
+			engine, spy := loadWorkflowWithNotifySpy(workflowWithNotifyFailed)
+
+			_, err := engine.StartInstance(ctx, "notify-fail-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(spy.calls).WithTimeout(2 * time.Second).Should(HaveLen(1))
+			Expect(spy.calls()[0].Type).To(Equal(notify.EventInstanceFailed))
 		})
 	})
 })
