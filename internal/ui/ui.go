@@ -170,12 +170,27 @@ type builderTrigger struct {
 	ConsumerGroup string `yaml:"consumer_group,omitempty"`
 }
 
+type builderNotification struct {
+	On    []string             `yaml:"on,omitempty"`
+	Email *builderEmailTarget  `yaml:"email,omitempty"`
+	SMS   *builderSMSTarget    `yaml:"sms,omitempty"`
+}
+
+type builderEmailTarget struct {
+	To []string `yaml:"to"`
+}
+
+type builderSMSTarget struct {
+	To []string `yaml:"to"`
+}
+
 type builderDef struct {
-	Name        string           `yaml:"name"`
-	Version     int              `yaml:"version,omitempty"`
-	Description string           `yaml:"description,omitempty"`
-	Triggers    []builderTrigger `yaml:"triggers,omitempty"`
-	Steps       []builderStep    `yaml:"steps,omitempty"`
+	Name          string                `yaml:"name"`
+	Version       int                   `yaml:"version,omitempty"`
+	Description   string                `yaml:"description,omitempty"`
+	Triggers      []builderTrigger      `yaml:"triggers,omitempty"`
+	Steps         []builderStep         `yaml:"steps,omitempty"`
+	Notifications *builderNotification  `yaml:"notifications,omitempty"`
 }
 
 type builderRowData struct {
@@ -192,7 +207,44 @@ func parseBuilderForm(c *fiber.Ctx) builderDef {
 	}
 	def.Triggers = parseTriggerRows(c)
 	def.Steps = parseStepRows(c)
+	def.Notifications = parseNotification(c)
 	return def
+}
+
+func parseNotification(c *fiber.Ctx) *builderNotification {
+	var on []string
+	for _, key := range []string{"notif_on_step_waiting_manual", "notif_on_instance_completed", "notif_on_instance_failed"} {
+		if c.FormValue(key) == "on" {
+			// key suffix after "notif_on_" is the event name
+			on = append(on, key[len("notif_on_"):])
+		}
+	}
+
+	var emailTo []string
+	for i := range maxBuilderRows {
+		if v := c.FormValue(fmt.Sprintf("notif_email_to_%d", i)); v != "" {
+			emailTo = append(emailTo, v)
+		}
+	}
+
+	var smsTo []string
+	for i := range maxBuilderRows {
+		if v := c.FormValue(fmt.Sprintf("notif_sms_to_%d", i)); v != "" {
+			smsTo = append(smsTo, v)
+		}
+	}
+
+	if len(on) == 0 && len(emailTo) == 0 && len(smsTo) == 0 {
+		return nil
+	}
+	n := &builderNotification{On: on}
+	if len(emailTo) > 0 {
+		n.Email = &builderEmailTarget{To: emailTo}
+	}
+	if len(smsTo) > 0 {
+		n.SMS = &builderSMSTarget{To: smsTo}
+	}
+	return n
 }
 
 func parseTriggerRows(c *fiber.Ctx) []builderTrigger {

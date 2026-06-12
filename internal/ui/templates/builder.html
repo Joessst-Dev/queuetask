@@ -268,6 +268,69 @@
           <p class="text-xs text-slate-600 mt-2">Optional — automatically starts instances via cron, webhook, or queue-ti message.</p>
         </div>
 
+        {{/* ── Notifications ── */}}
+        <div class="mb-8">
+          <h2 class="text-sm font-semibold text-slate-300 mb-4 uppercase tracking-wider">Notifications</h2>
+
+          {{/* Events */}}
+          <div class="mb-4">
+            <p class="text-xs font-medium text-slate-500 mb-2">Trigger on</p>
+            <div class="space-y-2">
+              <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" name="notif_on_step_waiting_manual" value="on"
+                       class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 cursor-pointer focus:ring-0 focus:ring-offset-0"
+                       onchange="htmx.trigger(document.getElementById('builder-form'),'change')">
+                <span class="text-xs text-slate-300">step.waiting_manual</span>
+                <span class="text-xs text-slate-600">— a manual step is awaiting approval</span>
+              </label>
+              <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" name="notif_on_instance_completed" value="on"
+                       class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 cursor-pointer focus:ring-0 focus:ring-offset-0"
+                       onchange="htmx.trigger(document.getElementById('builder-form'),'change')">
+                <span class="text-xs text-slate-300">instance.completed</span>
+                <span class="text-xs text-slate-600">— all steps finished successfully</span>
+              </label>
+              <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" name="notif_on_instance_failed" value="on"
+                       class="w-3.5 h-3.5 rounded border-slate-600 bg-slate-800 text-blue-500 cursor-pointer focus:ring-0 focus:ring-offset-0"
+                       onchange="htmx.trigger(document.getElementById('builder-form'),'change')">
+                <span class="text-xs text-slate-300">instance.failed</span>
+                <span class="text-xs text-slate-600">— a step reached a failed state</span>
+              </label>
+            </div>
+          </div>
+
+          {{/* Email recipients */}}
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs font-medium text-slate-500">Email recipients</p>
+              <button type="button"
+                      class="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+                      onclick="addNotifRecipient('email')">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add email
+              </button>
+            </div>
+            <div id="notif-email-list" class="space-y-2"></div>
+          </div>
+
+          {{/* SMS recipients */}}
+          <div class="mb-2">
+            <div class="flex items-center justify-between mb-2">
+              <p class="text-xs font-medium text-slate-500">SMS recipients</p>
+              <button type="button"
+                      class="flex items-center gap-1 text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors cursor-pointer border-0 bg-transparent p-0"
+                      onclick="addNotifRecipient('sms')">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add SMS
+              </button>
+            </div>
+            <div id="notif-sms-list" class="space-y-2"></div>
+          </div>
+
+          <p class="text-xs text-slate-600 mt-3">Provider credentials are configured in <code class="text-slate-500">config.yaml</code> under <code class="text-slate-500">notifications:</code>.</p>
+        </div>
+
         {{/* ── Steps ── */}}
         <div class="mb-8">
           <div class="flex items-center justify-between mb-4">
@@ -334,14 +397,18 @@
     function saveDraft() {
       var form = document.getElementById('builder-form');
       if (!form) return;
-      // Collect live .value for every named control (captures user input, select choices, textarea content).
+      // Collect live values for every named control.
+      // Checkboxes are saved as 'on'/'', all others by .value.
       var values = {};
       Array.prototype.forEach.call(form.elements, function (el) {
-        if (el.name) values[el.name] = el.value;
+        if (!el.name) return;
+        values[el.name] = el.type === 'checkbox' ? (el.checked ? 'on' : '') : el.value;
       });
       // Store row HTML separately for structure / conditional-field visibility classes.
-      values.__stepsHTML    = (document.getElementById('steps-list')    || {}).innerHTML || '';
-      values.__triggersHTML = (document.getElementById('triggers-list') || {}).innerHTML || '';
+      values.__stepsHTML      = (document.getElementById('steps-list')       || {}).innerHTML || '';
+      values.__triggersHTML   = (document.getElementById('triggers-list')    || {}).innerHTML || '';
+      values.__notifEmailHTML = (document.getElementById('notif-email-list') || {}).innerHTML || '';
+      values.__notifSMSHTML   = (document.getElementById('notif-sms-list')   || {}).innerHTML || '';
       try { localStorage.setItem(DRAFT_KEY, JSON.stringify(values)); } catch (e) {}
     }
 
@@ -364,16 +431,22 @@
       if (!form) return false;
 
       // 1. Restore row structure (recreates DOM nodes with saved visibility class state).
-      var stepsEl    = document.getElementById('steps-list');
-      var triggersEl = document.getElementById('triggers-list');
-      if (stepsEl)    stepsEl.innerHTML    = saved.__stepsHTML    || '';
-      if (triggersEl) triggersEl.innerHTML = saved.__triggersHTML || '';
+      var stepsEl      = document.getElementById('steps-list');
+      var triggersEl   = document.getElementById('triggers-list');
+      var notifEmailEl = document.getElementById('notif-email-list');
+      var notifSMSEl   = document.getElementById('notif-sms-list');
+      if (stepsEl)      stepsEl.innerHTML      = saved.__stepsHTML      || '';
+      if (triggersEl)   triggersEl.innerHTML   = saved.__triggersHTML   || '';
+      if (notifEmailEl) notifEmailEl.innerHTML = saved.__notifEmailHTML || '';
+      if (notifSMSEl)   notifSMSEl.innerHTML   = saved.__notifSMSHTML   || '';
 
-      // 2. Set every field's live value (metadata, counters, step/trigger inputs + selects).
+      // 2. Set every field's live value. Checkboxes need .checked, not .value.
       Object.keys(saved).forEach(function (key) {
         if (key.charAt(0) === '_') return;
         var el = form.querySelector('[name="' + key + '"]');
-        if (el) el.value = saved[key];
+        if (!el) return;
+        if (el.type === 'checkbox') el.checked = saved[key] === 'on';
+        else el.value = saved[key];
       });
 
       htmx.trigger(form, 'change');
@@ -402,5 +475,26 @@
       var banner = document.getElementById('draft-banner');
       if (banner) banner.classList.remove('hidden');
     }
+
+    window.addNotifRecipient = function (channel) {
+      var listId   = channel === 'email' ? 'notif-email-list' : 'notif-sms-list';
+      var fieldPfx = channel === 'email' ? 'notif_email_to_'  : 'notif_sms_to_';
+      var ph       = channel === 'email' ? 'user@example.com' : '+15550001234';
+      var container = document.getElementById(listId);
+      if (!container) return;
+      var idx = container.querySelectorAll('input').length;
+      var row = document.createElement('div');
+      row.className = 'notif-recipient-row flex items-center gap-2';
+      row.innerHTML =
+        '<input type="text" name="' + fieldPfx + idx + '" placeholder="' + ph + '"' +
+        ' class="flex-1 bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"' +
+        ' onchange="htmx.trigger(document.getElementById(\'builder-form\'),\'change\')">' +
+        '<button type="button"' +
+        ' class="text-xs text-slate-600 hover:text-red-400 transition-colors cursor-pointer border-0 bg-transparent p-0 shrink-0"' +
+        ' onclick="this.closest(\'.notif-recipient-row\').remove(); htmx.trigger(document.getElementById(\'builder-form\'),\'change\')">Remove</button>';
+      container.appendChild(row);
+      row.querySelector('input').focus();
+      htmx.trigger(document.getElementById('builder-form'), 'change');
+    };
   }());
 </script>
