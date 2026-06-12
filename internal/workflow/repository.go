@@ -240,6 +240,41 @@ func (r *Repository) ListSteps(ctx context.Context, instanceID uuid.UUID) ([]*St
 	return out, rows.Err()
 }
 
+func (r *Repository) ListStepsByInstances(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID][]*StepExecution, error) {
+	if len(ids) == 0 {
+		return map[uuid.UUID][]*StepExecution{}, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
+		        depends_on, publish_topic, queueti_topic, queueti_group,
+		        http_method, http_url, http_headers, static_input,
+		        input, output, error_message, started_at, completed_at, created_at, updated_at
+		 FROM queuetask.step_executions
+		 WHERE instance_id IN (`+strings.Join(placeholders, ",")+`)
+		 ORDER BY instance_id, step_order`,
+		args...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("listing steps by instances: %w", err)
+	}
+	defer rows.Close()
+	out := make(map[uuid.UUID][]*StepExecution, len(ids))
+	for rows.Next() {
+		s, err := scanStep(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[s.InstanceID] = append(out[s.InstanceID], s)
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) GetStep(ctx context.Context, instanceID uuid.UUID, stepName string) (*StepExecution, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT id, instance_id, step_name, step_order, status, trigger_type,

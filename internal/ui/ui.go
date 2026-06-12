@@ -114,12 +114,21 @@ func runsFilterToRepo(f runsFilter) workflow.ListInstancesFilter {
 }
 
 func buildRunItems(ctx context.Context, h *Handler, instances []*workflow.Instance) []runItem {
+	if len(instances) == 0 {
+		return nil
+	}
+	ids := make([]uuid.UUID, len(instances))
+	for i, inst := range instances {
+		ids[i] = inst.ID
+	}
+	stepsByInst, err := h.repo.ListStepsByInstances(ctx, ids)
+	if err != nil {
+		slog.Warn("runs: listing steps", "error", err)
+		stepsByInst = map[uuid.UUID][]*workflow.StepExecution{}
+	}
 	items := make([]runItem, 0, len(instances))
 	for _, inst := range instances {
-		rawSteps, err := h.repo.ListSteps(ctx, inst.ID)
-		if err != nil {
-			slog.Warn("runs: listing steps", "instance_id", inst.ID, "error", err)
-		}
+		rawSteps := stepsByInst[inst.ID]
 		descs := map[string]string{}
 		if def, ok := h.registry.Get(inst.WorkflowName); ok {
 			for _, s := range def.Steps {

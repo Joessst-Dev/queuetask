@@ -5,3 +5,9 @@
 
 /* Scan Go source for inline class strings (renderError, renderTriggered) */
 @source "../ui.go";
+
+/* Date picker calendar icon — inverted so it's visible on dark backgrounds */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.55);
+  cursor: pointer;
+}
