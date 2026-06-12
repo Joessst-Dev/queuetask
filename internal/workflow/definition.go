@@ -1,3 +1,5 @@
+// Package workflow implements the workflow execution engine, step definitions,
+// and persistent state management for queuetask workflow instances.
 package workflow
 
 import (
@@ -28,34 +30,41 @@ func validateHTTPURL(rawURL string) error {
 	return nil
 }
 
+// TriggerType identifies how a step is advanced.
 type TriggerType string
 
 const (
-	TriggerManual  TriggerType = "manual"
-	TriggerAuto    TriggerType = "auto"
-	TriggerQueueTi TriggerType = "queueti"
-	TriggerHTTP    TriggerType = "http"
+	TriggerManual  TriggerType = "manual"  // waits for a human trigger via the API
+	TriggerAuto    TriggerType = "auto"    // completes immediately with merged dependency output
+	TriggerQueueTi TriggerType = "queueti" // waits for a queue-ti message
+	TriggerHTTP    TriggerType = "http"    // makes an outbound HTTP request
 )
 
+// InstanceTriggerType identifies how a new workflow instance is created automatically.
 type InstanceTriggerType string
 
 const (
-	InstanceTriggerCron    InstanceTriggerType = "cron"
-	InstanceTriggerWebhook InstanceTriggerType = "webhook"
-	InstanceTriggerQueueTi InstanceTriggerType = "queueti"
+	InstanceTriggerCron    InstanceTriggerType = "cron"    // schedule-based; requires schedule field
+	InstanceTriggerWebhook InstanceTriggerType = "webhook" // POST /api/v1/workflows/:name/webhook
+	InstanceTriggerQueueTi InstanceTriggerType = "queueti" // message on a queue-ti topic; requires topic field
 )
 
 // WorkflowTrigger defines an automatic instance-creation trigger.
+// The fields that apply depend on Type:
+//   - cron: Schedule (required), Input (optional)
+//   - webhook: no additional fields
+//   - queueti: Topic (required), ConsumerGroup (optional)
 type WorkflowTrigger struct {
 	Type          InstanceTriggerType `yaml:"type"`
-	Schedule      string              `yaml:"schedule"`       // cron: standard 5-field expression
-	Input         any                 `yaml:"input"`          // cron: static input marshalled to JSON
+	Schedule      string              `yaml:"schedule"`       // cron: standard 5-field cron expression
+	Input         any                 `yaml:"input"`          // cron: static JSON passed as instance input
 	Topic         string              `yaml:"topic"`          // queueti: topic to consume
 	ConsumerGroup string              `yaml:"consumer_group"` // queueti: consumer group name
 }
 
-// WorkflowNotification declares which lifecycle events should trigger
-// notifications and who to contact.
+// WorkflowNotification declares which lifecycle events trigger notifications
+// and who to contact. On accepts the event type strings defined in the notify
+// package (e.g. "instance.completed", "step.waiting_manual").
 type WorkflowNotification struct {
 	On    []string           `yaml:"on"`
 	Email *NotifyEmailTarget `yaml:"email"`
@@ -67,11 +76,14 @@ type NotifyEmailTarget struct {
 	To []string `yaml:"to"`
 }
 
-// NotifySMSTarget lists the phone numbers to receive SMS notifications.
+// NotifySMSTarget lists the phone numbers (E.164) to receive SMS notifications.
 type NotifySMSTarget struct {
 	To []string `yaml:"to"`
 }
 
+// Definition is the in-memory representation of a parsed and validated workflow
+// YAML file. It is stored in the Registry and referenced by the engine at
+// instance-creation time.
 type Definition struct {
 	Name          string                `yaml:"name"`
 	Version       int                   `yaml:"version"`
@@ -81,12 +93,18 @@ type Definition struct {
 	Notifications *WorkflowNotification `yaml:"notifications"`
 }
 
+// HTTPDef holds the configuration for an http-trigger step.
+// URL must use http or https; private and loopback IP ranges are blocked at
+// execution time by the engine's SSRF filter. Method defaults to POST when empty.
 type HTTPDef struct {
 	Method  string            `yaml:"method"`
 	URL     string            `yaml:"url"`
 	Headers map[string]string `yaml:"headers"`
 }
 
+// StepDef describes one step in a workflow. Steps activate when all DependsOn
+// steps have completed. A step with no DependsOn activates when the instance is
+// created. If Input is non-nil it overrides the merged dependency outputs.
 type StepDef struct {
 	Name               string      `yaml:"name"`
 	Description        string      `yaml:"description"`

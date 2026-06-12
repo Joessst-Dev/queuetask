@@ -73,6 +73,9 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+// Engine orchestrates workflow instance execution. It is the central
+// coordinator: it creates instances, evaluates step readiness, executes
+// steps according to their trigger type, and dispatches lifecycle notifications.
 type Engine struct {
 	repo        *Repository
 	registry    *Registry
@@ -130,7 +133,8 @@ func (e *Engine) dispatchNotification(instanceID uuid.UUID, eventType notify.Eve
 		if !ok || def.Notifications == nil {
 			return
 		}
-		if !slices.Contains(def.Notifications.On, string(eventType)) {
+		if !slices.Contains(def.Notifications.On, string(eventType)) &&
+			!slices.Contains(def.Notifications.On, "*") {
 			return
 		}
 		_ = e.notifier.Notify(ctx, notify.Event{
@@ -151,7 +155,9 @@ func (e *Engine) SetHTTPClient(c HTTPDoer) {
 	e.ssrfEnabled = false
 }
 
-// StartInstance creates a new workflow instance and kicks off the first steps.
+// StartInstance creates a new workflow instance and activates all steps whose
+// dependencies are immediately satisfied. The named workflow must exist in the
+// Registry; returns an error if not found or if the initial advance fails.
 func (e *Engine) StartInstance(ctx context.Context, workflowName string, input json.RawMessage) (*Instance, error) {
 	def, ok := e.registry.Get(workflowName)
 	if !ok {
@@ -174,7 +180,9 @@ func (e *Engine) StartInstance(ctx context.Context, workflowName string, input j
 	return e.repo.GetInstance(ctx, inst.ID)
 }
 
-// TriggerStep advances a waiting_manual step and then advances the workflow.
+// TriggerStep completes a step that is in StatusWaitingManual or
+// StatusWaitingQueueTi, records output, and re-evaluates the workflow.
+// Returns an error if the step is not in a waiting state.
 func (e *Engine) TriggerStep(ctx context.Context, instanceID uuid.UUID, stepName string, output json.RawMessage) error {
 	step, err := e.repo.GetStep(ctx, instanceID, stepName)
 	if err != nil {
