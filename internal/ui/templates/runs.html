@@ -61,47 +61,84 @@
 <div class="h-full flex flex-col overflow-hidden">
 
   {{/* ── Filter panel ── */}}
-  <div id="runs-filter" class="border-b border-slate-800 bg-slate-900/30 shrink-0 px-4 py-3 space-y-2.5">
+  <div id="runs-filter" class="border-b border-slate-800 bg-slate-900/50 shrink-0">
 
     {{/* Hidden input: carries the comma-joined status values for hx-include */}}
     <input type="hidden" id="rf-status" name="status" value="{{.Filter.StatusesStr}}">
 
-    {{/* Row 1: status chips */}}
-    <div class="flex items-center gap-1.5 flex-wrap">
-      <span class="text-xs text-slate-600 font-medium mr-0.5 shrink-0">Status</span>
-      <button type="button" data-rf-chip="pending"
-              onclick="toggleRFStatus('pending')"
-              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">pending</button>
-      <button type="button" data-rf-chip="running"
-              onclick="toggleRFStatus('running')"
-              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">running</button>
-      <button type="button" data-rf-chip="completed"
-              onclick="toggleRFStatus('completed')"
-              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">completed</button>
-      <button type="button" data-rf-chip="failed"
-              onclick="toggleRFStatus('failed')"
-              class="rf-chip px-2 py-0.5 rounded text-xs font-medium cursor-pointer border-0 transition-colors">failed</button>
-      <span id="rf-count" class="hidden ml-1 px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-xs font-bold leading-none"></span>
-      <button type="button" id="rf-clear" onclick="clearRunsFilter()"
-              class="hidden ml-1 text-xs text-slate-600 hover:text-slate-400 transition-colors cursor-pointer border-0 bg-transparent p-0">✕ clear</button>
-    </div>
+    <div class="px-6 py-4 flex items-start gap-6 flex-wrap">
 
-    {{/* Row 2: workflow + date range */}}
-    <div class="flex items-center gap-2 flex-wrap">
-      <span class="text-xs text-slate-600 font-medium shrink-0">Workflow</span>
-      <select id="rf-workflow" name="workflow" onchange="applyRunsFilter()"
-              class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 cursor-pointer focus:outline-none focus:border-slate-600">
-        <option value="">All</option>
-        {{range .Workflows}}
-        <option value="{{.}}" {{if eq . $selectedWf}}selected{{end}}>{{.}}</option>
-        {{end}}
-      </select>
-      <span class="text-xs text-slate-600 font-medium shrink-0 ml-2">After</span>
-      <input type="date" id="rf-after" name="after" value="{{.Filter.After}}" onchange="applyRunsFilter()"
-             class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 focus:outline-none focus:border-slate-600">
-      <span class="text-xs text-slate-600 font-medium shrink-0">Before</span>
-      <input type="date" id="rf-before" name="before" value="{{.Filter.Before}}" onchange="applyRunsFilter()"
-             class="bg-slate-800 border border-slate-700 rounded text-xs text-slate-300 px-2 py-1 focus:outline-none focus:border-slate-600">
+      {{/* Status section */}}
+      <div class="space-y-2.5 shrink-0">
+        <div class="text-xs font-semibold uppercase tracking-widest text-slate-500">Status</div>
+        <div class="flex items-center gap-2">
+          <button type="button" data-rf-chip="pending"
+                  data-rf-active="bg-slate-700 text-slate-200 border-slate-500"
+                  data-rf-inactive="bg-slate-800/60 text-slate-500 border-slate-700"
+                  onclick="toggleRFStatus('pending')"
+                  class="rf-chip px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer border transition-all">pending</button>
+          <button type="button" data-rf-chip="running"
+                  data-rf-active="bg-orange-950 text-orange-300 border-orange-700"
+                  data-rf-inactive="bg-slate-800/60 text-slate-500 border-slate-700"
+                  onclick="toggleRFStatus('running')"
+                  class="rf-chip px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer border transition-all">running</button>
+          <button type="button" data-rf-chip="completed"
+                  data-rf-active="bg-emerald-950 text-emerald-300 border-emerald-700"
+                  data-rf-inactive="bg-slate-800/60 text-slate-500 border-slate-700"
+                  onclick="toggleRFStatus('completed')"
+                  class="rf-chip px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer border transition-all">completed</button>
+          <button type="button" data-rf-chip="failed"
+                  data-rf-active="bg-red-950 text-red-300 border-red-700"
+                  data-rf-inactive="bg-slate-800/60 text-slate-500 border-slate-700"
+                  onclick="toggleRFStatus('failed')"
+                  class="rf-chip px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer border transition-all">failed</button>
+        </div>
+      </div>
+
+      <div class="w-px self-stretch bg-slate-800 shrink-0"></div>
+
+      {{/* Workflow section */}}
+      <div class="space-y-2.5 shrink-0">
+        <div class="text-xs font-semibold uppercase tracking-widest text-slate-500">Workflow</div>
+        <select id="rf-workflow" name="workflow" onchange="applyRunsFilter()"
+                class="bg-slate-800/60 border border-slate-700 rounded-md text-sm text-slate-300 px-3 py-1.5 min-w-[160px] cursor-pointer focus:outline-none focus:border-slate-500 transition-colors hover:border-slate-600">
+          <option value="">All workflows</option>
+          {{range .Workflows}}
+          <option value="{{.}}" {{if eq . $selectedWf}}selected{{end}}>{{.}}</option>
+          {{end}}
+        </select>
+      </div>
+
+      <div class="w-px self-stretch bg-slate-800 shrink-0"></div>
+
+      {{/* Date range section */}}
+      <div class="space-y-2.5 shrink-0">
+        <div class="text-xs font-semibold uppercase tracking-widest text-slate-500">Date range</div>
+        <div class="flex items-center gap-3">
+          <div class="space-y-1.5">
+            <div class="text-xs text-slate-600">After</div>
+            <input type="date" id="rf-after" name="after" value="{{.Filter.After}}" onchange="applyRunsFilter()"
+                   class="bg-slate-800/60 border border-slate-700 rounded-md text-sm text-slate-300 px-3 py-1.5 cursor-pointer focus:outline-none focus:border-slate-500 transition-colors hover:border-slate-600">
+          </div>
+          <div class="text-slate-700 mt-5">→</div>
+          <div class="space-y-1.5">
+            <div class="text-xs text-slate-600">Before</div>
+            <input type="date" id="rf-before" name="before" value="{{.Filter.Before}}" onchange="applyRunsFilter()"
+                   class="bg-slate-800/60 border border-slate-700 rounded-md text-sm text-slate-300 px-3 py-1.5 cursor-pointer focus:outline-none focus:border-slate-500 transition-colors hover:border-slate-600">
+          </div>
+        </div>
+      </div>
+
+      {{/* Clear button — pushed to far right, only visible when filters are active */}}
+      <div class="ml-auto self-center">
+        <button type="button" id="rf-clear" onclick="clearRunsFilter()"
+                class="hidden items-center gap-2 px-3 py-1.5 rounded-md text-xs text-slate-500 hover:text-slate-300 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 transition-all cursor-pointer">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          Clear
+          <span id="rf-count" class="px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-300 text-xs font-bold leading-none"></span>
+        </button>
+      </div>
+
     </div>
   </div>
 
@@ -120,9 +157,6 @@
 
 <script>
 (function () {
-  var CHIP_ACTIVE   = 'bg-blue-600 text-white';
-  var CHIP_INACTIVE = 'bg-slate-800 text-slate-400';
-
   function getActiveStatuses() {
     var val = document.getElementById('rf-status').value;
     return val ? val.split(',') : [];
@@ -132,28 +166,30 @@
     var active = getActiveStatuses();
     document.querySelectorAll('[data-rf-chip]').forEach(function (btn) {
       var on = active.indexOf(btn.dataset.rfChip) !== -1;
-      CHIP_ACTIVE.split(' ').forEach(function (c) { btn.classList.toggle(c, on); });
-      CHIP_INACTIVE.split(' ').forEach(function (c) { btn.classList.toggle(c, !on); });
+      var activeClasses   = (btn.dataset.rfActive   || '').split(' ');
+      var inactiveClasses = (btn.dataset.rfInactive || '').split(' ');
+      activeClasses.forEach(function (c)   { btn.classList.toggle(c, on); });
+      inactiveClasses.forEach(function (c) { btn.classList.toggle(c, !on); });
     });
     updateBadge();
   }
 
   function updateBadge() {
     var count = 0;
-    if (document.getElementById('rf-status').value) count++;
-    if (document.getElementById('rf-workflow').value) count++;
-    if (document.getElementById('rf-after').value)  count++;
-    if (document.getElementById('rf-before').value) count++;
+    if (document.getElementById('rf-status').value)   count++;
+    if (document.getElementById('rf-workflow').value)  count++;
+    if (document.getElementById('rf-after').value)     count++;
+    if (document.getElementById('rf-before').value)    count++;
 
     var badge = document.getElementById('rf-count');
     var clear  = document.getElementById('rf-clear');
     if (count > 0) {
       badge.textContent = count;
-      badge.classList.remove('hidden');
       clear.classList.remove('hidden');
+      clear.classList.add('flex');
     } else {
-      badge.classList.add('hidden');
       clear.classList.add('hidden');
+      clear.classList.remove('flex');
     }
   }
 
