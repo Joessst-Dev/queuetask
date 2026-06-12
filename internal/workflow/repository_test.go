@@ -172,7 +172,9 @@ var _ = Describe("Repository", func() {
 
 			// early is on 2024-06-11 23:59:59 (should match Before=2024-06-11 end-of-day).
 			// late is 2024-06-12 00:00:00 (should NOT match).
-			eod := "2024-06-11T23:59:59.999999999Z"
+			// PostgreSQL TIMESTAMPTZ has microsecond precision; 999999999ns rounds up to
+			// the next second. Use 6-decimal-place strings and microsecond deltas.
+			eod := "2024-06-11T23:59:59.999999Z"
 			nextDay := "2024-06-12T00:00:00Z"
 			_, err = testDB.ExecContext(ctx,
 				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, eod, early.ID)
@@ -182,7 +184,7 @@ var _ = Describe("Repository", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			list, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
-				Before: mustParseTime("2024-06-12T00:00:00Z").Add(-time.Nanosecond), // end of 2024-06-11
+				Before: mustParseTime("2024-06-12T00:00:00Z").Add(-time.Microsecond), // end of 2024-06-11
 			})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(list).To(HaveLen(1))

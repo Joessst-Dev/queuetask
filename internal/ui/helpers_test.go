@@ -47,9 +47,9 @@ var _ = Describe("runsFilterToRepo", func() {
 		Expect(rf.Before.IsZero()).To(BeTrue())
 	})
 
-	It("sets Before to end-of-day inclusive (23:59:59.999999999 UTC)", func() {
+	It("sets Before to end-of-day inclusive (23:59:59.999999 UTC, microsecond precision)", func() {
 		rf := runsFilterToRepo(runsFilter{Before: "2024-06-11"})
-		want := time.Date(2024, 6, 11, 23, 59, 59, 999_999_999, time.UTC)
+		want := time.Date(2024, 6, 11, 23, 59, 59, 999_999_000, time.UTC)
 		Expect(rf.Before).To(Equal(want))
 	})
 

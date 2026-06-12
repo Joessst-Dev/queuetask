@@ -106,8 +106,8 @@ func runsFilterToRepo(f runsFilter) workflow.ListInstancesFilter {
 	}
 	if f.Before != "" {
 		if t, err := time.Parse("2006-01-02", f.Before); err == nil {
-			// inclusive of the entire Before day
-			rf.Before = t.Add(24*time.Hour - time.Nanosecond)
+			// inclusive of the entire Before day (microsecond precision matches PostgreSQL TIMESTAMPTZ)
+			rf.Before = t.Add(24*time.Hour - time.Microsecond)
 		}
 	}
 	return rf
