@@ -120,4 +120,4 @@ go test ./internal/workflow/... -v --ginkgo.focus "completes a manual step"
 curl -X POST http://localhost:8081/api/v1/workflows/reload
 ```
 
-See [CLAUDE.md](CLAUDE.md) for detailed developer guidance including the queue-ti local dependency setup.
+The queue-ti dependency uses `go.mod` replace directives pointing to a local clone at `../queue-ti` — that clone must be present for `go build` and `go mod tidy` to work.
