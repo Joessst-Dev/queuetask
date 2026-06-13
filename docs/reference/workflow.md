@@ -176,7 +176,7 @@ notifications:
 | `instance.failed` | Any step failed |
 | `*` | Wildcard — matches all event types |
 
-Email and SMS providers are configured at the service level. See [notifications.md](notifications.md).
+Email and SMS providers are configured at the service level. See [notifications.md](./notifications).
 
 ---
 

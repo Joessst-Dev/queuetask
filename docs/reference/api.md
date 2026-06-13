@@ -1,6 +1,6 @@
 # REST API Reference
 
-Base URL: `http://localhost:8081` (default port; see `server.port` in [configuration.md](configuration.md)).
+Base URL: `http://localhost:8081` (default port; see `server.port` in [configuration.md](./configuration)).
 
 Error responses follow the shape `{"error": "description"}` with an appropriate HTTP status code.
 

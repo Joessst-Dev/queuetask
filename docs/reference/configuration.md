@@ -55,7 +55,7 @@ All queue-ti integration is disabled when `queueti.enabled` is `false` (the defa
 
 ## Notifications (optional)
 
-Notifications are disabled when `provider` is empty. Only the active provider's sub-keys need to be set. See [notifications.md](notifications.md) for provider-specific setup.
+Notifications are disabled when `provider` is empty. Only the active provider's sub-keys need to be set. See [notifications.md](./notifications) for provider-specific setup.
 
 ### Email
 

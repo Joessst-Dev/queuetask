@@ -1,8 +1,10 @@
 # Build output
 /bin/
 
-# Node (Tailwind CSS build tooling)
+# Node (Tailwind CSS build tooling + VitePress)
 node_modules/
+docs/.vitepress/dist
+docs/.vitepress/cache
 
 # Go
 *.test

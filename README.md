@@ -62,40 +62,16 @@ publisher (queue-ti gRPC producer)
 
 ---
 
-## Writing workflows
+## Documentation
 
-Workflows are YAML files in the configured `workflows.dir` (default `./workflows`). Changes are picked up without restart via `POST /api/v1/workflows/reload` or the builder UI.
+Full documentation is at **https://joessst-dev.github.io/queuetask/**
 
-See **[docs/workflow.md](docs/workflow.md)** for the complete YAML reference and annotated examples.
-
----
-
-## REST API
-
-See **[docs/api.md](docs/api.md)** for all endpoints with request/response shapes and `curl` examples.
-
----
-
-## Configuration
-
-Configured via `config.yaml` in the working directory and/or environment variables. See **[docs/configuration.md](docs/configuration.md)** for the full reference.
-
-Minimal `config.yaml`:
-
-```yaml
-db:
-  host: localhost
-  port: 5432
-  user: postgres
-  password: postgres
-  name: queueti
-```
-
----
-
-## Notifications
-
-queuetask can send email and SMS alerts on workflow lifecycle events (`instance.completed`, `instance.failed`, `step.waiting_manual`). See **[docs/notifications.md](docs/notifications.md)** for provider setup.
+- [Getting Started](https://joessst-dev.github.io/queuetask/guide/getting-started)
+- [How It Works](https://joessst-dev.github.io/queuetask/guide/how-it-works)
+- [Workflow YAML Reference](https://joessst-dev.github.io/queuetask/reference/workflow)
+- [REST API Reference](https://joessst-dev.github.io/queuetask/reference/api)
+- [Configuration Reference](https://joessst-dev.github.io/queuetask/reference/configuration)
+- [Notifications Setup](https://joessst-dev.github.io/queuetask/reference/notifications)
 
 ---
 
