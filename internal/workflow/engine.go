@@ -77,13 +77,22 @@ type HTTPDoer interface {
 // coordinator: it creates instances, evaluates step readiness, executes
 // steps according to their trigger type, and dispatches lifecycle notifications.
 type Engine struct {
-	repo        *Repository
-	registry    *Registry
-	publisher   publisher.Publisher
-	poller      *Poller
-	notifier    notify.Notifier
-	httpClient  HTTPDoer
-	ssrfEnabled bool
+	repo          *Repository
+	registry      *Registry
+	publisher     publisher.Publisher
+	poller        *Poller
+	notifier      notify.Notifier
+	httpClient    HTTPDoer
+	ssrfEnabled   bool
+	onStateChange func()
+}
+
+func (e *Engine) SetOnStateChange(fn func()) { e.onStateChange = fn }
+
+func (e *Engine) notifyStateChange() {
+	if e.onStateChange != nil {
+		go e.onStateChange()
+	}
 }
 
 func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller, notifier notify.Notifier) *Engine {
@@ -177,6 +186,7 @@ func (e *Engine) StartInstance(ctx context.Context, workflowName string, input j
 		return nil, err
 	}
 
+	e.notifyStateChange()
 	return e.repo.GetInstance(ctx, inst.ID)
 }
 
@@ -197,7 +207,9 @@ func (e *Engine) TriggerStep(ctx context.Context, instanceID uuid.UUID, stepName
 		return err
 	}
 
-	return e.advance(ctx, instanceID)
+	err = e.advance(ctx, instanceID)
+	e.notifyStateChange()
+	return err
 }
 
 func (e *Engine) completeStep(ctx context.Context, instanceID uuid.UUID, stepName string, output json.RawMessage) error {

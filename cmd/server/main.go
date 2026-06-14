@@ -160,7 +160,10 @@ func main() {
 
 	handler := api.NewHandler(engine, registry, repo, notifier)
 
-	uiHandler, err := ui.NewHandler(engine, repo, registry)
+	broadcaster := ui.NewBroadcaster()
+	engine.SetOnStateChange(broadcaster.Notify)
+
+	uiHandler, err := ui.NewHandler(engine, repo, registry, broadcaster)
 	if err != nil {
 		slog.Error("building UI handler", "error", err)
 		os.Exit(1)

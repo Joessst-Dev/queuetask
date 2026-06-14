@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"database/sql"
@@ -34,11 +35,12 @@ var templateFiles embed.FS
 var tailwindCSS []byte
 
 type Handler struct {
-	engine   *workflow.Engine
-	repo     *workflow.Repository
-	registry *workflow.Registry
-	tmpl     *template.Template
-	saveMu   sync.Mutex
+	engine      *workflow.Engine
+	repo        *workflow.Repository
+	registry    *workflow.Registry
+	tmpl        *template.Template
+	saveMu      sync.Mutex
+	broadcaster *Broadcaster
 }
 
 type stepsData struct {
@@ -328,7 +330,7 @@ func parseStepRows(c *fiber.Ctx) []builderStep {
 	return steps
 }
 
-func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry) (*Handler, error) {
+func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry, b *Broadcaster) (*Handler, error) {
 	sub, err := fs.Sub(templateFiles, "templates")
 	if err != nil {
 		return nil, err
@@ -337,7 +339,7 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *wo
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl}, nil
+	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl, broadcaster: b}, nil
 }
 
 func buildTemplateFuncMap() template.FuncMap {
@@ -503,6 +505,7 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 		return c.Send(tailwindCSS)
 	})
 	g := app.Group("/ui")
+	g.Get("/events", h.Events)
 	g.Get("/runs", h.Runs)
 	g.Get("/runs/grid", h.RunsGrid)
 	g.Get("/builder", h.Builder)
@@ -545,6 +548,40 @@ func (h *Handler) renderTriggered(c *fiber.Ctx, id uuid.UUID) error {
 			`hx-get="/ui/instances/` + idStr + `" ` +
 			`hx-target="#detail" hx-swap="innerHTML">Refresh panel</span></p>`,
 	)
+}
+
+func (h *Handler) Events(c *fiber.Ctx) error {
+	c.Set("Content-Type", "text/event-stream")
+	c.Set("Cache-Control", "no-cache")
+	c.Set("Connection", "keep-alive")
+	c.Set("X-Accel-Buffering", "no")
+
+	ch, unsub := h.broadcaster.Subscribe()
+
+	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+		defer unsub()
+		fmt.Fprintf(w, "retry: 3000\n\n")
+		if w.Flush() != nil {
+			return
+		}
+		ticker := time.NewTicker(25 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ch:
+				fmt.Fprintf(w, "event: state-change\ndata: {}\n\n")
+				if w.Flush() != nil {
+					return
+				}
+			case <-ticker.C:
+				fmt.Fprintf(w, ": keepalive\n\n")
+				if w.Flush() != nil {
+					return
+				}
+			}
+		}
+	})
+	return nil
 }
 
 func (h *Handler) Index(c *fiber.Ctx) error {
