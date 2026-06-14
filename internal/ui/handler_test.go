@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	. "github.com/onsi/ginkgo/v2"
@@ -338,7 +339,154 @@ var _ = Describe("UI Handler", func() {
 			Expect(b).To(ContainSubstring(`value="2"`))
 		})
 	})
+
+	Describe("GET /ui/runs", func() {
+		It("renders the full page with filter toolbar and grid container", func() {
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(ContainSubstring("text/html"))
+			b := body(resp)
+			Expect(b).To(ContainSubstring(`id="runs-filter"`))
+			Expect(b).To(ContainSubstring(`id="runs-grid"`))
+		})
+	})
+
+	Describe("GET /ui/runs/grid", func() {
+		It("shows empty state when no instances exist", func() {
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(body(resp)).To(ContainSubstring("No instances found"))
+		})
+
+		It("shows instance cards when instances exist", func() {
+			ts.createInstance()
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(body(resp)).To(ContainSubstring("ui-test-wf"))
+		})
+
+		It("filters by status", func() {
+			inst := ts.createInstance()
+			ts.createInstance()
+			Expect(ts.repo.UpdateInstanceStatus(context.Background(), inst.ID, workflow.InstanceCompleted)).To(Succeed())
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid?status=completed", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			b := body(resp)
+			Expect(len(findAll(b, "ui-test-wf"))).To(Equal(1))
+		})
+
+		It("omits the scroll sentinel when instances do not exceed the page size", func() {
+			for i := 0; i < 50; i++ {
+				_, err := ts.repo.CreateInstance(context.Background(), "ui-test-wf", nil)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(body(resp)).NotTo(ContainSubstring("cursor_ts"))
+		})
+
+		It("includes a scroll sentinel when instances exceed the page size", func() {
+			for i := 0; i < 51; i++ {
+				_, err := ts.repo.CreateInstance(context.Background(), "ui-test-wf", nil)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			b := body(resp)
+			Expect(b).To(ContainSubstring("cursor_ts"))
+			Expect(b).To(ContainSubstring(`hx-trigger="intersect once"`))
+		})
+
+		It("cursor page returns the overflow instances without a further sentinel", func() {
+			base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+			for i := 0; i < 51; i++ {
+				inst, err := ts.repo.CreateInstance(context.Background(), "ui-test-wf", nil)
+				Expect(err).NotTo(HaveOccurred())
+				_, err = testDB.Exec(
+					`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`,
+					base.Add(time.Duration(i)*time.Second), inst.ID,
+				)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			b1 := body(runsGridGet(ts, "/ui/runs/grid"))
+			cursorURL := extractRunsCursorURL(b1)
+			Expect(cursorURL).NotTo(BeEmpty())
+
+			b2 := body(runsGridGet(ts, cursorURL))
+			Expect(b2).To(ContainSubstring("ui-test-wf"))
+			Expect(b2).NotTo(ContainSubstring("cursor_ts"))
+		})
+
+		It("cursor URL preserves active filter params", func() {
+			base := time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC)
+			for i := 0; i < 51; i++ {
+				inst, err := ts.repo.CreateInstance(context.Background(), "ui-test-wf", nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(ts.repo.UpdateInstanceStatus(context.Background(), inst.ID, workflow.InstanceCompleted)).To(Succeed())
+				_, err = testDB.Exec(
+					`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`,
+					base.Add(time.Duration(i)*time.Second), inst.ID,
+				)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid?status=completed", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			b := body(resp)
+			Expect(b).To(ContainSubstring("cursor_ts"))
+			Expect(b).To(ContainSubstring("status=completed"))
+		})
+
+		It("ignores malformed cursor params and returns page 1", func() {
+			ts.createInstance()
+
+			req := httptest.NewRequest(http.MethodGet, "/ui/runs/grid?cursor_ts=not-a-time&cursor_id=not-a-uuid", nil)
+			resp, err := ts.app.Test(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(body(resp)).To(ContainSubstring("ui-test-wf"))
+		})
+	})
 })
+
+// runsGridGet performs a GET against the test app and asserts a 200 OK.
+func runsGridGet(ts *testSetup, path string) *http.Response {
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	resp, err := ts.app.Test(req)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	return resp
+}
+
+// extractRunsCursorURL finds the hx-get sentinel URL in a runs/grid HTML response.
+// html/template encodes & as &amp; in attribute values, so we unescape it.
+func extractRunsCursorURL(htmlBody string) string {
+	const marker = `hx-get="/ui/runs/grid?`
+	idx := strings.Index(htmlBody, marker)
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(`hx-get="`)
+	end := strings.Index(htmlBody[start:], `"`)
+	if end < 0 {
+		return ""
+	}
+	return strings.ReplaceAll(htmlBody[start:start+end], "&amp;", "&")
+}
 
 // findAll returns all non-overlapping occurrences of sub in s.
 func findAll(s, sub string) []int {
