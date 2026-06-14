@@ -90,9 +90,15 @@ type Engine struct {
 func (e *Engine) SetOnStateChange(fn func()) { e.onStateChange = fn }
 
 func (e *Engine) notifyStateChange() {
-	if e.onStateChange != nil {
-		e.onStateChange()
+	if e.onStateChange == nil {
+		return
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("onStateChange panicked", "panic", r)
+		}
+	}()
+	e.onStateChange()
 }
 
 func NewEngine(repo *Repository, registry *Registry, pub publisher.Publisher, poller *Poller, notifier notify.Notifier) *Engine {
@@ -182,12 +188,11 @@ func (e *Engine) StartInstance(ctx context.Context, workflowName string, input j
 		return nil, err
 	}
 
-	defer e.notifyStateChange()
-
 	if err := e.advance(ctx, inst.ID); err != nil {
 		return nil, err
 	}
 
+	e.notifyStateChange()
 	return e.repo.GetInstance(ctx, inst.ID)
 }
 

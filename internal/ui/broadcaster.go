@@ -31,8 +31,12 @@ func (b *Broadcaster) Subscribe() (<-chan struct{}, func()) {
 // Notify signals all current subscribers. Never blocks.
 func (b *Broadcaster) Notify() {
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	snapshot := make([]chan struct{}, 0, len(b.clients))
 	for ch := range b.clients {
+		snapshot = append(snapshot, ch)
+	}
+	b.mu.Unlock()
+	for _, ch := range snapshot {
 		select {
 		case ch <- struct{}{}:
 		default:

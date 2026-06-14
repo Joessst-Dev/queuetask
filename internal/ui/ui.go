@@ -564,6 +564,12 @@ func (h *Handler) Events(c *fiber.Ctx) error {
 		if w.Flush() != nil {
 			return
 		}
+		// Immediate catchup event so reconnecting clients refresh without waiting
+		// for the next broadcaster notification.
+		fmt.Fprintf(w, "event: state-change\ndata: {}\n\n")
+		if w.Flush() != nil {
+			return
+		}
 		ticker := time.NewTicker(25 * time.Second)
 		defer ticker.Stop()
 		for {

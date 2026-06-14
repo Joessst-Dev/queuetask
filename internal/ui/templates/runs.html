@@ -138,6 +138,7 @@
        hx-get="/ui/runs/grid"
        hx-include="#runs-filter"
        hx-trigger="sse:state-change from:body"
+       hx-sync="#runs-grid:replace"
        hx-target="#runs-grid"
        hx-swap="innerHTML">
     {{template "runs-grid-content" .Grid}}

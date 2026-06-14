@@ -30,7 +30,7 @@
     (function () {
       var source = new EventSource('/ui/events');
       source.addEventListener('state-change', function () {
-        document.body.dispatchEvent(new CustomEvent('sse:state-change'));
+        document.body.dispatchEvent(new CustomEvent('sse:state-change', { bubbles: true }));
       });
     }());
   </script>
