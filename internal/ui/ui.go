@@ -64,8 +64,15 @@ type runsFilter struct {
 	Before      string // YYYY-MM-DD
 }
 
-type runsPageData struct {
+const runsPageSize = 50
+
+type runsGridData struct {
 	Items     []runItem
+	CursorURL string
+}
+
+type runsPageData struct {
+	Grid      runsGridData
 	Filter    runsFilter
 	Workflows []string
 }
@@ -544,9 +551,60 @@ func (h *Handler) Index(c *fiber.Ctx) error {
 	return h.render(c, "index.html", nil)
 }
 
+func (h *Handler) buildRunsGrid(ctx context.Context, f runsFilter, cursorTs, cursorID string) (runsGridData, error) {
+	rf := runsFilterToRepo(f)
+	rf.Limit = runsPageSize + 1
+
+	if cursorTs != "" && cursorID != "" {
+		t, errT := time.Parse(time.RFC3339Nano, cursorTs)
+		id, errID := uuid.Parse(cursorID)
+		if errT == nil && errID == nil {
+			rf.CursorTime, rf.CursorID = &t, &id
+		} else {
+			slog.Warn("runs/grid: bad cursor params", "cursor_ts", cursorTs, "cursor_id", cursorID)
+		}
+	}
+
+	instances, err := h.repo.ListInstances(ctx, rf)
+	if err != nil {
+		return runsGridData{}, err
+	}
+
+	hasMore := len(instances) > runsPageSize
+	if hasMore {
+		instances = instances[:runsPageSize]
+	}
+
+	var cursorURL string
+	if hasMore {
+		last := instances[len(instances)-1]
+		params := url.Values{}
+		params.Set("cursor_ts", last.CreatedAt.UTC().Format(time.RFC3339Nano))
+		params.Set("cursor_id", last.ID.String())
+		if f.StatusesStr != "" {
+			params.Set("status", f.StatusesStr)
+		}
+		if f.Workflow != "" {
+			params.Set("workflow", f.Workflow)
+		}
+		if f.After != "" {
+			params.Set("after", f.After)
+		}
+		if f.Before != "" {
+			params.Set("before", f.Before)
+		}
+		cursorURL = "/ui/runs/grid?" + params.Encode()
+	}
+
+	return runsGridData{
+		Items:     buildRunItems(ctx, h, instances),
+		CursorURL: cursorURL,
+	}, nil
+}
+
 func (h *Handler) Runs(c *fiber.Ctx) error {
 	f := parseRunsFilter(c)
-	instances, err := h.repo.ListInstances(c.Context(), runsFilterToRepo(f))
+	grid, err := h.buildRunsGrid(c.Context(), f, "", "")
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
@@ -557,7 +615,7 @@ func (h *Handler) Runs(c *fiber.Ctx) error {
 	}
 	sort.Strings(names)
 	return h.render(c, "runs.html", runsPageData{
-		Items:     buildRunItems(c.Context(), h, instances),
+		Grid:      grid,
 		Filter:    f,
 		Workflows: names,
 	})
@@ -565,11 +623,11 @@ func (h *Handler) Runs(c *fiber.Ctx) error {
 
 func (h *Handler) RunsGrid(c *fiber.Ctx) error {
 	f := parseRunsFilter(c)
-	instances, err := h.repo.ListInstances(c.Context(), runsFilterToRepo(f))
+	grid, err := h.buildRunsGrid(c.Context(), f, c.Query("cursor_ts"), c.Query("cursor_id"))
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return h.render(c, "runs-grid-content", buildRunItems(c.Context(), h, instances))
+	return h.render(c, "runs-grid-content", grid)
 }
 
 func (h *Handler) Workflows(c *fiber.Ctx) error {

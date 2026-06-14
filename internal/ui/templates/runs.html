@@ -1,5 +1,5 @@
 {{define "runs-grid-content"}}
-{{if not .}}
+{{if not .Items}}
   <div class="flex flex-col items-center justify-center h-64 text-center select-none">
     <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-3">
       <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>
@@ -9,7 +9,7 @@
   </div>
 {{else}}
   <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-    {{range .}}
+    {{range .Items}}
     <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-lg overflow-hidden transition-colors">
 
       {{/* ── Card header ── */}}
@@ -54,6 +54,12 @@
     </div>
     {{end}}
   </div>
+  {{if .CursorURL}}
+  <div hx-get="{{.CursorURL}}"
+       hx-trigger="intersect once"
+       hx-swap="outerHTML"
+       class="h-px mt-4"></div>
+  {{end}}
 {{end}}
 {{end}}
 
@@ -134,7 +140,7 @@
        hx-trigger="every 5s"
        hx-target="#runs-grid"
        hx-swap="innerHTML">
-    {{template "runs-grid-content" .Items}}
+    {{template "runs-grid-content" .Grid}}
   </div>
 
 </div>
