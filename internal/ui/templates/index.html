@@ -6,7 +6,6 @@
   <title>queuetask</title>
   <link rel="stylesheet" href="/ui/static/tailwind.css">
   <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-  <script src="https://unpkg.com/htmx-ext-sse@2.2.2/sse.js"></script>
   <script type="module">
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
     mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
@@ -27,7 +26,14 @@
 </head>
 <body class="bg-slate-950 text-slate-100 h-screen flex flex-col font-sans antialiased">
 
-  <div id="sse-hub" hx-ext="sse" sse-connect="/ui/events" class="hidden"></div>
+  <script>
+    (function () {
+      var source = new EventSource('/ui/events');
+      source.addEventListener('state-change', function () {
+        document.body.dispatchEvent(new CustomEvent('sse:state-change'));
+      });
+    }());
+  </script>
 
   <header class="flex items-center gap-2.5 px-5 py-3 bg-slate-900 border-b border-slate-800 shrink-0">
     <button id="sidebar-toggle" class="md:hidden p-1.5 -ml-1 rounded text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer border-0 bg-transparent shrink-0">
@@ -115,7 +121,7 @@
            class="overflow-y-auto flex-1"
            hx-get="/ui/instances"
            hx-include="#instances-filter"
-           hx-trigger="load, sse:state-change from:#sse-hub, refreshInstances from:body"
+           hx-trigger="load, sse:state-change from:body, refreshInstances from:body"
            hx-target="#instances-list"
            hx-swap="innerHTML">
       </div>

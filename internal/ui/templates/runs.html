@@ -137,7 +137,7 @@
        class="flex-1 overflow-y-auto p-6"
        hx-get="/ui/runs/grid"
        hx-include="#runs-filter"
-       hx-trigger="sse:state-change from:#sse-hub"
+       hx-trigger="sse:state-change from:body"
        hx-target="#runs-grid"
        hx-swap="innerHTML">
     {{template "runs-grid-content" .Grid}}
