@@ -591,13 +591,55 @@ func (h *Handler) StartInstance(c *fiber.Ctx) error {
 	return h.render(c, "steps.html", stepsData{Instance: inst, Steps: steps})
 }
 
+const instancesPageSize = 50
+
+type instancesPageData struct {
+	Instances   []*workflow.Instance
+	IsFirstPage bool
+	CursorURL   string // non-empty when more pages exist; used by the scroll sentinel
+}
+
 func (h *Handler) Instances(c *fiber.Ctx) error {
-	f := workflow.ListInstancesFilter{Statuses: parseStatuses(c.Query("status"))}
+	f := workflow.ListInstancesFilter{
+		Statuses: parseStatuses(c.Query("status")),
+		Limit:    instancesPageSize + 1,
+	}
+	isFirstPage := true
+	if tsStr, idStr := c.Query("cursor_ts"), c.Query("cursor_id"); tsStr != "" && idStr != "" {
+		t, errT := time.Parse(time.RFC3339Nano, tsStr)
+		id, errID := uuid.Parse(idStr)
+		if errT == nil && errID == nil {
+			f.CursorTime, f.CursorID, isFirstPage = &t, &id, false
+		} else {
+			slog.Warn("instances: bad cursor params", "cursor_ts", tsStr, "cursor_id", idStr)
+		}
+	}
+
 	instances, err := h.repo.ListInstances(c.Context(), f)
 	if err != nil {
 		return h.renderError(c, fiber.StatusInternalServerError, err.Error())
 	}
-	return h.render(c, "instances.html", instances)
+
+	hasMore := len(instances) > instancesPageSize
+	if hasMore {
+		instances = instances[:instancesPageSize]
+	}
+
+	var cursorURL string
+	if hasMore {
+		last := instances[len(instances)-1]
+		cursorURL = "/ui/instances?cursor_ts=" + url.QueryEscape(last.CreatedAt.UTC().Format(time.RFC3339Nano)) +
+			"&cursor_id=" + last.ID.String()
+		if s := c.Query("status"); s != "" {
+			cursorURL += "&status=" + url.QueryEscape(s)
+		}
+	}
+
+	return h.render(c, "instances.html", instancesPageData{
+		Instances:   instances,
+		IsFirstPage: isFirstPage,
+		CursorURL:   cursorURL,
+	})
 }
 
 func (h *Handler) Steps(c *fiber.Ctx) error {

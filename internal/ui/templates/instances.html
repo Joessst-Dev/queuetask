@@ -1,7 +1,7 @@
-{{if not .}}
+{{if and .IsFirstPage (not .Instances)}}
 <p class="px-4 py-3 text-slate-500 text-sm">No instances yet. Start one via the API.</p>
 {{else}}
-{{range .}}
+{{range .Instances}}
 <div class="px-4 py-3 border-b border-slate-800 cursor-pointer hover:bg-slate-800/60 transition-colors"
      hx-get="/ui/instances/{{.ID}}"
      hx-target="#detail"
@@ -13,5 +13,11 @@
     <span class="text-xs text-slate-500 ml-auto">{{.CreatedAt.Format "15:04:05"}}</span>
   </div>
 </div>
+{{end}}
+{{if .CursorURL}}
+<div hx-get="{{.CursorURL}}"
+     hx-trigger="intersect once"
+     hx-swap="outerHTML"
+     class="h-px"></div>
 {{end}}
 {{end}}

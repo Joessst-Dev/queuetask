@@ -107,10 +107,13 @@ func (r *Repository) GetInstance(ctx context.Context, id uuid.UUID) (*Instance, 
 }
 
 type ListInstancesFilter struct {
-	Statuses []InstanceStatus
-	Workflow string
-	After    time.Time
-	Before   time.Time
+	Statuses   []InstanceStatus
+	Workflow   string
+	After      time.Time
+	Before     time.Time
+	Limit      int        // 0 = unlimited
+	CursorTime *time.Time // keyset cursor: items older than (or equal with lower ID than) this timestamp
+	CursorID   *uuid.UUID // keyset cursor: tie-break when CursorTime timestamps match
 }
 
 func (r *Repository) ListInstances(ctx context.Context, f ListInstancesFilter) ([]*Instance, error) {
@@ -144,10 +147,22 @@ func (r *Repository) ListInstances(ctx context.Context, f ListInstancesFilter) (
 		args = append(args, f.Before)
 		n++
 	}
+	if f.CursorTime != nil && f.CursorID != nil {
+		conds = append(conds, fmt.Sprintf(
+			"(created_at < $%d OR (created_at = $%d AND id < $%d))",
+			n, n+1, n+2,
+		))
+		args = append(args, *f.CursorTime, *f.CursorTime, *f.CursorID)
+		n += 3
+	}
 	if len(conds) > 0 {
 		q += " WHERE " + strings.Join(conds, " AND ")
 	}
-	q += " ORDER BY created_at DESC"
+	q += " ORDER BY created_at DESC, id DESC"
+	if f.Limit > 0 {
+		q += fmt.Sprintf(" LIMIT $%d", n)
+		args = append(args, f.Limit)
+	}
 
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {

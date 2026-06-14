@@ -191,6 +191,78 @@ var _ = Describe("Repository", func() {
 			Expect(list[0].ID).To(Equal(early.ID))
 		})
 
+		It("ListInstances walks pages via keyset cursor without gaps or duplicates", func() {
+			var ids []uuid.UUID
+			for i := 0; i < 5; i++ {
+				inst, err := repo.CreateInstance(ctx, "wf", nil)
+				Expect(err).NotTo(HaveOccurred())
+				ids = append(ids, inst.ID)
+			}
+			// Assign distinct timestamps 1s apart so order is deterministic.
+			base := mustParseTime("2024-01-01T12:00:00Z")
+			for i, id := range ids {
+				ts := base.Add(time.Duration(i) * time.Second)
+				_, err := testDB.ExecContext(ctx,
+					`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id = $2`, ts, id)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			// Walk 3 pages of size 2 (yields 2+2+1 = 5).
+			f := workflow.ListInstancesFilter{Limit: 2}
+			var collected []uuid.UUID
+			for {
+				page, err := repo.ListInstances(ctx, f)
+				Expect(err).NotTo(HaveOccurred())
+				for _, inst := range page {
+					collected = append(collected, inst.ID)
+				}
+				if len(page) < 2 {
+					break
+				}
+				last := page[len(page)-1]
+				f.CursorTime = &last.CreatedAt
+				f.CursorID = &last.ID
+			}
+
+			Expect(collected).To(HaveLen(5))
+			Expect(collected).To(ConsistOf(ids))
+			seen := make(map[uuid.UUID]bool, 5)
+			for _, id := range collected {
+				Expect(seen[id]).To(BeFalse(), "duplicate ID %v", id)
+				seen[id] = true
+			}
+		})
+
+		It("ListInstances uses id DESC as tie-break when created_at timestamps are equal", func() {
+			instA, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			instB, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Force identical timestamps to exercise the tie-break path.
+			sameTS := "2024-06-15T10:00:00Z"
+			_, err = testDB.ExecContext(ctx,
+				`UPDATE queuetask.workflow_instances SET created_at = $1 WHERE id IN ($2, $3)`,
+				sameTS, instA.ID, instB.ID)
+			Expect(err).NotTo(HaveOccurred())
+
+			p1, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{Limit: 1})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(p1).To(HaveLen(1))
+
+			last := p1[0]
+			p2, err := repo.ListInstances(ctx, workflow.ListInstancesFilter{
+				Limit:      1,
+				CursorTime: &last.CreatedAt,
+				CursorID:   &last.ID,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(p2).To(HaveLen(1))
+
+			Expect(p1[0].ID).NotTo(Equal(p2[0].ID))
+			Expect([]uuid.UUID{p1[0].ID, p2[0].ID}).To(ConsistOf(instA.ID, instB.ID))
+		})
+
 		It("UpdateInstanceStatus changes the status", func() {
 			inst, err := repo.CreateInstance(ctx, "wf", nil)
 			Expect(err).NotTo(HaveOccurred())
