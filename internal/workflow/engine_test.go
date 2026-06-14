@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -132,6 +133,20 @@ var _ = Describe("Engine", func() {
 
 			err = engine.TriggerStep(ctx, inst.ID, "step-two", nil)
 			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("onStateChange callback", func() {
+		It("is called by StartInstance and TriggerStep", func() {
+			var count atomic.Int32
+			engine.SetOnStateChange(func() { count.Add(1) })
+
+			inst, err := engine.StartInstance(ctx, "test-wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(count.Load()).To(Equal(int32(1)))
+
+			Expect(engine.TriggerStep(ctx, inst.ID, "step-one", nil)).To(Succeed())
+			Expect(count.Load()).To(Equal(int32(2)))
 		})
 	})
 })

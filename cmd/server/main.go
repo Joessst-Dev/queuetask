@@ -132,6 +132,11 @@ func main() {
 		poller.SetEngine(engine)
 	}
 
+	// Wire the broadcaster before any engine-mutating goroutine starts so
+	// there is no race between the write to onStateChange and its first read.
+	broadcaster := ui.NewBroadcaster()
+	engine.SetOnStateChange(broadcaster.Notify)
+
 	// Cron scheduler — always active, no queue-ti dependency.
 	cronScheduler := workflow.NewCronScheduler(engine)
 	cronScheduler.Start()
@@ -159,9 +164,6 @@ func main() {
 	}
 
 	handler := api.NewHandler(engine, registry, repo, notifier)
-
-	broadcaster := ui.NewBroadcaster()
-	engine.SetOnStateChange(broadcaster.Notify)
 
 	uiHandler, err := ui.NewHandler(engine, repo, registry, broadcaster)
 	if err != nil {
