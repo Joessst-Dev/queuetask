@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 )
@@ -18,6 +19,22 @@ type Config struct {
 	Workflows     WorkflowsConfig
 	QueueTi       QueueTiConfig
 	Notifications NotificationsConfig
+	Auth          AuthConfig
+}
+
+// AuthConfig controls optional JWT-based authentication. Auth is disabled when
+// Username or Password is empty; all routes are public in that case.
+type AuthConfig struct {
+	Username     string
+	Password     string
+	JWTSecret    string        `mapstructure:"jwt_secret"`
+	TokenExpiry  time.Duration `mapstructure:"token_expiry"`
+	CookieSecure bool          `mapstructure:"cookie_secure"` // set true behind TLS
+}
+
+// Enabled reports whether authentication is active.
+func (a AuthConfig) Enabled() bool {
+	return a.Username != "" && a.Password != ""
 }
 
 // NotificationsConfig holds email and SMS notification settings.
@@ -146,6 +163,12 @@ func Load() (*Config, error) {
 	viper.SetDefault("notifications.sms.vonage.api_key", "")
 	viper.SetDefault("notifications.sms.vonage.api_secret", "")
 	viper.SetDefault("notifications.sms.vonage.from", "")
+
+	viper.SetDefault("auth.username", "")
+	viper.SetDefault("auth.password", "")
+	viper.SetDefault("auth.jwt_secret", "")
+	viper.SetDefault("auth.token_expiry", 24*time.Hour)
+	viper.SetDefault("auth.cookie_secure", false)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

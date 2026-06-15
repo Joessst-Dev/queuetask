@@ -32,6 +32,7 @@ func newTestApp() *fiber.App {
 			return c.Status(code).JSON(fiber.Map{"error": err.Error()})
 		},
 	})
+	app.Get("/health", h.Health)
 	api.RegisterRoutes(app, h)
 	return app
 }

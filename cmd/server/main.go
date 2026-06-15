@@ -17,6 +17,7 @@ import (
 	queueti "github.com/Joessst-Dev/queue-ti/clients/go-client"
 
 	"github.com/Joessst-Dev/queuetask/internal/api"
+	"github.com/Joessst-Dev/queuetask/internal/auth"
 	"github.com/Joessst-Dev/queuetask/internal/config"
 	"github.com/Joessst-Dev/queuetask/internal/db"
 	"github.com/Joessst-Dev/queuetask/internal/notify"
@@ -142,9 +143,15 @@ func main() {
 	registry.AddReloadHook(syncSchedulers)
 	syncSchedulers(registry.List())
 
+	// Resolve JWT secret: generate ephemeral one if not configured.
+	if cfg.Auth.Enabled() && cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = auth.RandomSecret()
+		slog.Warn("auth: AUTH_JWT_SECRET not set — using ephemeral secret; tokens invalidated on restart")
+	}
+
 	handler := api.NewHandler(engine, registry, repo, notifier)
 
-	uiHandler, err := ui.NewHandler(engine, repo, registry, broadcaster)
+	uiHandler, err := ui.NewHandler(engine, repo, registry, broadcaster, cfg.Auth)
 	if err != nil {
 		slog.Error("building UI handler", "error", err)
 		os.Exit(1)
@@ -161,6 +168,16 @@ func main() {
 	})
 	app.Use(recover.New())
 	app.Use(logger.New())
+
+	// Always open — registered before any auth gate.
+	app.Get("/health", handler.Health)
+
+	if cfg.Auth.Enabled() {
+		app.Get("/login", uiHandler.LoginPage)
+		app.Post("/login", uiHandler.Login)
+		app.Get("/logout", uiHandler.Logout)
+		app.Use(auth.Middleware(cfg.Auth))
+	}
 
 	uiHandler.RegisterRoutes(app)
 	api.RegisterRoutes(app, handler)

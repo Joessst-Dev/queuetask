@@ -3,8 +3,6 @@ package api
 import "github.com/gofiber/fiber/v2"
 
 func RegisterRoutes(app *fiber.App, h *Handler) {
-	app.Get("/health", h.Health)
-
 	v1 := app.Group("/api/v1")
 
 	v1.Get("/workflows", h.ListWorkflows)

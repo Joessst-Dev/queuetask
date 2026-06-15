@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -25,6 +26,8 @@ import (
 	"github.com/google/uuid"
 	"gopkg.in/yaml.v3"
 
+	"github.com/Joessst-Dev/queuetask/internal/auth"
+	"github.com/Joessst-Dev/queuetask/internal/config"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
@@ -41,6 +44,7 @@ type Handler struct {
 	tmpl        *template.Template
 	saveMu      sync.Mutex
 	broadcaster *Broadcaster
+	cfg         config.AuthConfig
 }
 
 type stepsData struct {
@@ -346,7 +350,7 @@ func parseStepRows(formValue func(string) string) []builderStep {
 	return steps
 }
 
-func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry, b *Broadcaster) (*Handler, error) {
+func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *workflow.Registry, b *Broadcaster, cfg config.AuthConfig) (*Handler, error) {
 	sub, err := fs.Sub(templateFiles, "templates")
 	if err != nil {
 		return nil, err
@@ -355,7 +359,63 @@ func NewHandler(engine *workflow.Engine, repo *workflow.Repository, registry *wo
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl, broadcaster: b}, nil
+	return &Handler{engine: engine, repo: repo, registry: registry, tmpl: tmpl, broadcaster: b, cfg: cfg}, nil
+}
+
+type loginData struct {
+	Error string
+}
+
+func (h *Handler) LoginPage(c *fiber.Ctx) error {
+	return h.render(c, "login.html", loginData{})
+}
+
+func (h *Handler) Login(c *fiber.Ctx) error {
+	var body struct {
+		Username string `form:"username" json:"username"`
+		Password string `form:"password" json:"password"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return fiber.ErrBadRequest
+	}
+
+	userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(h.cfg.Username)) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(h.cfg.Password)) == 1
+	if !userOK || !passOK {
+		if strings.Contains(c.Get("Accept"), "text/html") {
+			c.Status(fiber.StatusUnauthorized)
+			return h.render(c, "login.html", loginData{Error: "invalid username or password"})
+		}
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "invalid credentials"})
+	}
+
+	token, err := auth.IssueToken(h.cfg.JWTSecret, body.Username, h.cfg.TokenExpiry)
+	if err != nil {
+		return err
+	}
+
+	c.Cookie(&fiber.Cookie{
+		Name:     auth.CookieName,
+		Value:    token,
+		Path:     "/",
+		HTTPOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: "Lax",
+		MaxAge:   int(h.cfg.TokenExpiry.Seconds()),
+	})
+
+	if strings.Contains(c.Get("Accept"), "text/html") {
+		return c.Redirect("/", fiber.StatusFound)
+	}
+	return c.JSON(fiber.Map{
+		"token":      token,
+		"expires_at": time.Now().Add(h.cfg.TokenExpiry),
+	})
+}
+
+func (h *Handler) Logout(c *fiber.Ctx) error {
+	c.Cookie(&fiber.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1})
+	return c.Redirect("/login", fiber.StatusFound)
 }
 
 func buildTemplateFuncMap() template.FuncMap {

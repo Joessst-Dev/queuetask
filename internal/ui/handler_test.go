@@ -14,6 +14,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/Joessst-Dev/queuetask/internal/config"
 	"github.com/Joessst-Dev/queuetask/internal/notify"
 	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/ui"
@@ -33,7 +34,7 @@ func newTestSetup() *testSetup {
 	registry := workflow.NewRegistry(testWorkflowDir)
 	Expect(registry.Load()).To(Succeed())
 	engine := workflow.NewEngine(repo, registry, publisher.Noop{}, nil, notify.Noop{})
-	h, err := ui.NewHandler(engine, repo, registry, ui.NewBroadcaster())
+	h, err := ui.NewHandler(engine, repo, registry, ui.NewBroadcaster(), config.AuthConfig{})
 	Expect(err).NotTo(HaveOccurred())
 	app := fiber.New()
 	h.RegisterRoutes(app)

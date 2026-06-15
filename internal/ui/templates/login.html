@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>queuetask — login</title>
+  <link rel="stylesheet" href="/ui/static/tailwind.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex items-center justify-center font-sans antialiased">
+  <div class="w-full max-w-sm px-4">
+    <div class="flex items-center justify-center gap-2.5 mb-8">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      <span class="text-sm font-semibold tracking-widest">queuetask</span>
+    </div>
+    <div class="bg-slate-900 border border-slate-800 rounded-xl p-8">
+      <h2 class="text-sm font-medium text-slate-300 mb-6">Sign in</h2>
+      {{if .Error}}
+      <div class="mb-5 px-4 py-3 bg-red-950/50 border border-red-500/30 rounded-lg text-red-300 text-xs">{{.Error}}</div>
+      {{end}}
+      <form method="POST" action="/login" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="username">Username</label>
+          <input
+            id="username"
+            name="username"
+            type="text"
+            autocomplete="username"
+            required
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          >
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5" for="password">Password</label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          >
+        </div>
+        <button
+          type="submit"
+          class="w-full bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium py-2 px-4 rounded-lg transition-colors mt-2"
+        >
+          Sign in
+        </button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>
