@@ -248,17 +248,23 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 	allDone, anyFailed := workflowState(steps)
 
 	if anyFailed {
-		if err := e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceFailed); err != nil {
+		won, err := e.repo.ClaimInstanceTerminal(ctx, instanceID, InstanceFailed)
+		if err != nil {
 			return err
 		}
-		e.dispatchNotification(instanceID, notify.EventInstanceFailed, "")
+		if won {
+			e.dispatchNotification(instanceID, notify.EventInstanceFailed, "")
+		}
 		return nil
 	}
 	if allDone {
-		if err := e.repo.UpdateInstanceStatus(ctx, instanceID, InstanceCompleted); err != nil {
+		won, err := e.repo.ClaimInstanceTerminal(ctx, instanceID, InstanceCompleted)
+		if err != nil {
 			return err
 		}
-		e.dispatchNotification(instanceID, notify.EventInstanceCompleted, "")
+		if won {
+			e.dispatchNotification(instanceID, notify.EventInstanceCompleted, "")
+		}
 		return nil
 	}
 
@@ -277,46 +283,60 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 
 		switch s.TriggerType {
 		case TriggerManual:
-			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusWaitingManual, mergedInput, ""); err != nil {
+			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusWaitingManual, mergedInput)
+			if err != nil {
 				return err
 			}
-			e.dispatchNotification(instanceID, notify.EventStepWaitingManual, s.StepName)
+			if won {
+				e.dispatchNotification(instanceID, notify.EventStepWaitingManual, s.StepName)
+			}
 
 		case TriggerAuto:
-			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusRunning, mergedInput, ""); err != nil {
+			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusRunning, mergedInput)
+			if err != nil {
 				return err
 			}
-			if err := e.completeStep(ctx, instanceID, s.StepName, mergedInput); err != nil {
-				return err
+			if won {
+				if err := e.completeStep(ctx, instanceID, s.StepName, mergedInput); err != nil {
+					return err
+				}
+				return e.advance(ctx, instanceID)
 			}
-			return e.advance(ctx, instanceID)
+			// Lost the race: another node claimed this step. Fall through to the next
+			// pending step in this (stale) snapshot — safe because no deps from this
+			// step appear in completedSet yet, so nothing downstream will fire.
 
 		case TriggerQueueTi:
-			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusWaitingQueueTi, mergedInput, ""); err != nil {
+			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusWaitingQueueTi, mergedInput)
+			if err != nil {
 				return err
 			}
-			if e.poller != nil {
+			if won && e.poller != nil {
 				e.poller.Watch(instanceID, s)
 			}
 
 		case TriggerHTTP:
-			if err := e.repo.UpdateStepStatus(ctx, instanceID, s.StepName, StatusRunning, mergedInput, ""); err != nil {
+			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusRunning, mergedInput)
+			if err != nil {
 				return err
 			}
-			output, httpErr := e.executeHTTPStep(ctx, s, mergedInput)
-			if httpErr != nil {
-				// Use a detached context: the inbound ctx may already be cancelled
-				// (e.g. client disconnect), which would prevent marking the step failed.
-				cleanupCtx := context.Background()
-				if err := e.repo.UpdateStepStatus(cleanupCtx, instanceID, s.StepName, StatusFailed, nil, httpErr.Error()); err != nil {
+			if won {
+				output, httpErr := e.executeHTTPStep(ctx, s, mergedInput)
+				if httpErr != nil {
+					// Use a detached context: the inbound ctx may already be cancelled
+					// (e.g. client disconnect), which would prevent marking the step failed.
+					cleanupCtx := context.Background()
+					if err := e.repo.UpdateStepStatus(cleanupCtx, instanceID, s.StepName, StatusFailed, nil, httpErr.Error()); err != nil {
+						return err
+					}
+					return e.advance(cleanupCtx, instanceID)
+				}
+				if err := e.completeStep(ctx, instanceID, s.StepName, output); err != nil {
 					return err
 				}
-				return e.advance(cleanupCtx, instanceID)
+				return e.advance(ctx, instanceID)
 			}
-			if err := e.completeStep(ctx, instanceID, s.StepName, output); err != nil {
-				return err
-			}
-			return e.advance(ctx, instanceID)
+			// Lost the race: fall through, same reasoning as TriggerAuto.
 		}
 	}
 

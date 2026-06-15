@@ -12,6 +12,12 @@ import (
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
+// cronLocksCleanup removes all cron_locks rows so tests start with a clean slate.
+func cronLocksCleanup(ctx context.Context) {
+	_, err := testDB.ExecContext(ctx, `DELETE FROM queuetask.cron_locks`)
+	Expect(err).NotTo(HaveOccurred())
+}
+
 func mustParseTime(s string) time.Time {
 	t, err := time.Parse(time.RFC3339Nano, s)
 	if err != nil {
@@ -413,6 +419,153 @@ var _ = Describe("Repository", func() {
 			Expect(s.Status).To(Equal(workflow.StatusFailed))
 			Expect(s.ErrorMessage).To(Equal("something went wrong"))
 			Expect(s.CompletedAt).NotTo(BeNil())
+		})
+	})
+
+	Describe("CAS methods", func() {
+		var instID uuid.UUID
+
+		BeforeEach(func() {
+			inst, err := repo.CreateInstance(ctx, "wf", nil)
+			Expect(err).NotTo(HaveOccurred())
+			instID = inst.ID
+		})
+
+		Describe("ClaimStep", func() {
+			It("returns true and transitions a pending step to the target status", func() {
+				Expect(repo.CreateSteps(ctx, instID, []workflow.StepDef{
+					{Name: "s", Trigger: workflow.TriggerManual},
+				})).To(Succeed())
+
+				won, err := repo.ClaimStep(ctx, instID, "s", workflow.StatusWaitingManual, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeTrue())
+
+				s, err := repo.GetStep(ctx, instID, "s")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(s.Status).To(Equal(workflow.StatusWaitingManual))
+			})
+
+			It("returns false when a second caller tries to claim the same step", func() {
+				Expect(repo.CreateSteps(ctx, instID, []workflow.StepDef{
+					{Name: "s", Trigger: workflow.TriggerManual},
+				})).To(Succeed())
+
+				won1, err := repo.ClaimStep(ctx, instID, "s", workflow.StatusWaitingManual, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won1).To(BeTrue())
+
+				won2, err := repo.ClaimStep(ctx, instID, "s", workflow.StatusWaitingManual, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won2).To(BeFalse())
+			})
+
+			It("returns false for a non-pending step", func() {
+				Expect(repo.CreateSteps(ctx, instID, []workflow.StepDef{
+					{Name: "s", Trigger: workflow.TriggerManual},
+				})).To(Succeed())
+				Expect(repo.UpdateStepStatus(ctx, instID, "s", workflow.StatusCompleted, nil, "")).To(Succeed())
+
+				won, err := repo.ClaimStep(ctx, instID, "s", workflow.StatusWaitingManual, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeFalse())
+			})
+
+			It("sets started_at when claiming to running", func() {
+				Expect(repo.CreateSteps(ctx, instID, []workflow.StepDef{
+					{Name: "s", Trigger: workflow.TriggerAuto},
+				})).To(Succeed())
+
+				won, err := repo.ClaimStep(ctx, instID, "s", workflow.StatusRunning, nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeTrue())
+
+				s, err := repo.GetStep(ctx, instID, "s")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(s.StartedAt).NotTo(BeNil())
+			})
+		})
+
+		Describe("ClaimInstanceTerminal", func() {
+			It("returns true and transitions a running instance to completed", func() {
+				won, err := repo.ClaimInstanceTerminal(ctx, instID, workflow.InstanceCompleted)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeTrue())
+
+				inst, err := repo.GetInstance(ctx, instID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inst.Status).To(Equal(workflow.InstanceCompleted))
+			})
+
+			It("returns false when a second caller tries to claim the same terminal transition", func() {
+				won1, err := repo.ClaimInstanceTerminal(ctx, instID, workflow.InstanceCompleted)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won1).To(BeTrue())
+
+				won2, err := repo.ClaimInstanceTerminal(ctx, instID, workflow.InstanceFailed)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won2).To(BeFalse())
+
+				// Status must remain the first terminal state, not overwritten.
+				inst, err := repo.GetInstance(ctx, instID)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(inst.Status).To(Equal(workflow.InstanceCompleted))
+			})
+		})
+
+		Describe("TryAcquireCronLock", func() {
+			var scheduledAt time.Time
+
+			BeforeEach(func() {
+				scheduledAt = time.Now().UTC().Truncate(time.Second)
+				DeferCleanup(func() { cronLocksCleanup(ctx) })
+			})
+
+			It("returns true on the first acquisition for a given key", func() {
+				won, err := repo.TryAcquireCronLock(ctx, "my-wf", 0, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeTrue())
+			})
+
+			It("returns false when a second node tries the same key", func() {
+				_, err := repo.TryAcquireCronLock(ctx, "my-wf", 0, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+
+				won, err := repo.TryAcquireCronLock(ctx, "my-wf", 0, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeFalse())
+			})
+
+			It("allows different trigger indices to acquire independently", func() {
+				won0, err := repo.TryAcquireCronLock(ctx, "my-wf", 0, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won0).To(BeTrue())
+
+				won1, err := repo.TryAcquireCronLock(ctx, "my-wf", 1, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won1).To(BeTrue())
+			})
+
+			It("prunes rows older than 1 day for the same workflow/trigger", func() {
+				stale := scheduledAt.Add(-25 * time.Hour)
+				_, err := testDB.ExecContext(ctx,
+					`INSERT INTO queuetask.cron_locks (workflow_name, trigger_idx, scheduled_at) VALUES ($1, $2, $3)`,
+					"my-wf", 0, stale,
+				)
+				Expect(err).NotTo(HaveOccurred())
+
+				// TryAcquireCronLock should prune the stale row and insert the new one.
+				won, err := repo.TryAcquireCronLock(ctx, "my-wf", 0, scheduledAt)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(won).To(BeTrue())
+
+				var count int
+				Expect(testDB.QueryRowContext(ctx,
+					`SELECT COUNT(*) FROM queuetask.cron_locks WHERE workflow_name = 'my-wf' AND trigger_idx = 0 AND scheduled_at = $1`,
+					stale,
+				).Scan(&count)).To(Succeed())
+				Expect(count).To(Equal(0))
+			})
 		})
 	})
 })

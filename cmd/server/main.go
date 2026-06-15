@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/lib/pq"
 
 	queueti "github.com/Joessst-Dev/queue-ti/clients/go-client"
 
@@ -86,13 +88,37 @@ func main() {
 		poller.SetEngine(engine)
 	}
 
-	// Wire the broadcaster before any engine-mutating goroutine starts so
-	// there is no race between the write to onStateChange and its first read.
+	// Wire the broadcaster: engine notifies PG, PG notifies all nodes' broadcasters.
 	broadcaster := ui.NewBroadcaster()
-	engine.SetOnStateChange(broadcaster.Notify)
+	engine.SetOnStateChange(func() {
+		_ = repo.PGNotify(context.Background())
+	})
+
+	pgListener := pq.NewListener(cfg.DB.DSN(), 10*time.Second, time.Minute,
+		func(ev pq.ListenerEventType, err error) {
+			if err != nil {
+				slog.Warn("pg listener event", "error", err)
+			}
+			// On reconnect, force a refresh so SSE clients don't miss state changes
+			// that occurred while the listener was disconnected.
+			if ev == pq.ListenerEventReconnected {
+				broadcaster.Notify()
+			}
+		},
+	)
+	if err := pgListener.Listen("queuetask_state_change"); err != nil {
+		slog.Error("pg listen failed", "error", err)
+		os.Exit(1)
+	}
+	defer pgListener.Close()
+	go func() {
+		for range pgListener.Notify {
+			broadcaster.Notify()
+		}
+	}()
 
 	// Cron scheduler — always active, no queue-ti dependency.
-	cronScheduler := workflow.NewCronScheduler(engine)
+	cronScheduler := workflow.NewCronScheduler(engine, repo)
 	cronScheduler.Start()
 	defer cronScheduler.Stop()
 

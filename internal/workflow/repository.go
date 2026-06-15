@@ -348,6 +348,72 @@ func scanStep(row scanner) (*StepExecution, error) {
 	return &s, nil
 }
 
+// ClaimStep atomically transitions a step from pending to newStatus.
+// Returns (true, nil) if this caller won the claim; (false, nil) if another
+// process already moved the step out of pending.
+func (r *Repository) ClaimStep(ctx context.Context, instanceID uuid.UUID, stepName string, newStatus StepStatus, input json.RawMessage) (bool, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE queuetask.step_executions
+		 SET status     = $1,
+		     input      = CASE WHEN $1 IN ('running','waiting_manual','waiting_queueti') THEN $2 ELSE input END,
+		     started_at = CASE WHEN $1 = 'running' AND started_at IS NULL THEN now() ELSE started_at END,
+		     updated_at = now()
+		 WHERE instance_id = $3 AND step_name = $4 AND status = 'pending'`,
+		newStatus, input, instanceID, stepName,
+	)
+	if err != nil {
+		return false, fmt.Errorf("claiming step: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
+// TryAcquireCronLock attempts to insert a dedup row for a cron firing.
+// Returns true if this node should start the workflow instance (i.e. won
+// the insert race). Old locks for the same workflow/trigger are pruned inline.
+func (r *Repository) TryAcquireCronLock(ctx context.Context, workflowName string, triggerIdx int, scheduledAt time.Time) (bool, error) {
+	result, err := r.db.ExecContext(ctx, `
+		WITH cleanup AS (
+			DELETE FROM queuetask.cron_locks
+			WHERE workflow_name = $1 AND trigger_idx = $2
+			  AND scheduled_at < now() - interval '1 day'
+		)
+		INSERT INTO queuetask.cron_locks (workflow_name, trigger_idx, scheduled_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT DO NOTHING`,
+		workflowName, triggerIdx, scheduledAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("acquiring cron lock: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
+// ClaimInstanceTerminal atomically transitions an instance from running to a
+// terminal status. Returns (true, nil) if this caller made the transition;
+// (false, nil) if the instance was already terminal (another node got there first).
+func (r *Repository) ClaimInstanceTerminal(ctx context.Context, id uuid.UUID, status InstanceStatus) (bool, error) {
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE queuetask.workflow_instances
+		 SET status = $1, updated_at = now()
+		 WHERE id = $2 AND status = 'running'`,
+		status, id,
+	)
+	if err != nil {
+		return false, fmt.Errorf("claiming instance terminal: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
+// PGNotify sends a PostgreSQL NOTIFY on the queuetask_state_change channel so
+// that all server instances (including this one) can fan-out to their local SSE clients.
+func (r *Repository) PGNotify(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, "SELECT pg_notify('queuetask_state_change', '')")
+	return err
+}
+
 func coalesceSlice(s []string) []string {
 	if s == nil {
 		return []string{}
