@@ -59,7 +59,10 @@ func main() {
 
 	if cfg.QueueTi.Enabled {
 		var err error
-		qClient, err = buildQueueTiClient(context.Background(), cfg.QueueTi)
+		qClient, err = publisher.DialClient(context.Background(),
+			cfg.QueueTi.GRPCAddr, cfg.QueueTi.AdminURL,
+			cfg.QueueTi.Username, cfg.QueueTi.Password,
+		)
 		if err != nil {
 			slog.Error("connecting to queue-ti", "error", err)
 			os.Exit(1)
@@ -130,18 +133,14 @@ func main() {
 	}
 
 	// Hook into registry reloads so schedulers stay in sync.
-	registry.AddReloadHook(func(defs []*workflow.Definition) {
+	syncSchedulers := func(defs []*workflow.Definition) {
 		cronScheduler.Sync(defs)
 		if instancePoller != nil {
 			instancePoller.Sync(defs)
 		}
-	})
-
-	// Initial sync with the already-loaded definitions.
-	cronScheduler.Sync(registry.List())
-	if instancePoller != nil {
-		instancePoller.Sync(registry.List())
 	}
+	registry.AddReloadHook(syncSchedulers)
+	syncSchedulers(registry.List())
 
 	handler := api.NewHandler(engine, registry, repo, notifier)
 
@@ -184,23 +183,3 @@ func main() {
 	}
 }
 
-// buildQueueTiClient creates an authenticated (or unauthenticated) queue-ti client
-// used by the Poller for consumer subscriptions.
-func buildQueueTiClient(ctx context.Context, cfg config.QueueTiConfig) (*queueti.Client, error) {
-	opts := []queueti.DialOption{queueti.WithInsecure()}
-
-	if cfg.Username != "" || cfg.Password != "" {
-		auth, err := queueti.NewAuth(ctx, cfg.AdminURL, cfg.Username, cfg.Password)
-		if err != nil {
-			return nil, fmt.Errorf("queue-ti auth: %w", err)
-		}
-		if token := auth.Token(); token != "" {
-			opts = append(opts,
-				queueti.WithBearerToken(token),
-				queueti.WithTokenRefresher(auth.Refresh),
-			)
-		}
-	}
-
-	return queueti.Dial(cfg.GRPCAddr, opts...)
-}

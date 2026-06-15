@@ -546,6 +546,19 @@ func (h *Handler) render(c *fiber.Ctx, name string, data any) error {
 	return c.Send(buf.Bytes())
 }
 
+// errRendered is returned by helpers that have already committed an HTTP response.
+// Callers must return nil to prevent Fiber's error handler from overwriting it.
+var errRendered = errors.New("response already rendered")
+
+func (h *Handler) parseInstanceID(c *fiber.Ctx) (uuid.UUID, error) {
+	id, err := uuid.Parse(c.Params("id"))
+	if err != nil {
+		_ = h.renderError(c, fiber.StatusBadRequest, "invalid instance id")
+		return uuid.UUID{}, errRendered
+	}
+	return id, nil
+}
+
 func (h *Handler) renderError(c *fiber.Ctx, status int, msg string) error {
 	c.Set("Content-Type", "text/html; charset=utf-8")
 	c.Status(status)
@@ -759,9 +772,9 @@ func (h *Handler) Instances(c *fiber.Ctx) error {
 }
 
 func (h *Handler) Steps(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := h.parseInstanceID(c)
 	if err != nil {
-		return h.renderError(c, fiber.StatusBadRequest, "invalid instance id")
+		return nil
 	}
 	inst, err := h.repo.GetInstance(c.Context(), id)
 	if err != nil {
@@ -778,9 +791,9 @@ func (h *Handler) Steps(c *fiber.Ctx) error {
 }
 
 func (h *Handler) TriggerStep(c *fiber.Ctx) error {
-	id, err := uuid.Parse(c.Params("id"))
+	id, err := h.parseInstanceID(c)
 	if err != nil {
-		return h.renderError(c, fiber.StatusBadRequest, "invalid instance id")
+		return nil
 	}
 	stepName := c.Params("step")
 	if err := h.engine.TriggerStep(c.Context(), id, stepName, json.RawMessage(nil)); err != nil {

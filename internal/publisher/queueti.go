@@ -14,9 +14,8 @@ type QueueTiProducer struct {
 	producer *queueti.Producer
 }
 
-// NewQueueTiProducer dials the queue-ti gRPC server and optionally
-// authenticates using the admin HTTP API.
-func NewQueueTiProducer(ctx context.Context, grpcAddr, adminURL, username, password string) (*QueueTiProducer, error) {
+// DialClient creates an authenticated (or unauthenticated) queue-ti gRPC client.
+func DialClient(ctx context.Context, grpcAddr, adminURL, username, password string) (*queueti.Client, error) {
 	opts := []queueti.DialOption{queueti.WithInsecure()}
 
 	if username != "" || password != "" {
@@ -36,7 +35,16 @@ func NewQueueTiProducer(ctx context.Context, grpcAddr, adminURL, username, passw
 	if err != nil {
 		return nil, fmt.Errorf("dialing queue-ti at %s: %w", grpcAddr, err)
 	}
+	return client, nil
+}
 
+// NewQueueTiProducer dials the queue-ti gRPC server and optionally
+// authenticates using the admin HTTP API.
+func NewQueueTiProducer(ctx context.Context, grpcAddr, adminURL, username, password string) (*QueueTiProducer, error) {
+	client, err := DialClient(ctx, grpcAddr, adminURL, username, password)
+	if err != nil {
+		return nil, err
+	}
 	return &QueueTiProducer{
 		client:   client,
 		producer: client.NewProducer(),
