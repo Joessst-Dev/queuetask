@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -51,9 +50,5 @@ func (s *MailgunSender) SendEmail(ctx context.Context, to, subject, body string)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("mailgun: HTTP %d: %s", resp.StatusCode, errBody)
-	}
-	return nil
+	return checkHTTPResponse(resp, "mailgun")
 }

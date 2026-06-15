@@ -50,9 +50,8 @@ func (s *VonageSender) SendSMS(ctx context.Context, to, body string) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("vonage: HTTP %d: %s", resp.StatusCode, errBody)
+	if err := checkHTTPResponse(resp, "vonage"); err != nil {
+		return err
 	}
 	// Vonage always returns HTTP 200, even for rejected messages.
 	// Inspect the per-message status field to detect actual delivery failures.

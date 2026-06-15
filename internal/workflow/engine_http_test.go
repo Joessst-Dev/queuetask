@@ -7,13 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/Joessst-Dev/queuetask/internal/notify"
-	"github.com/Joessst-Dev/queuetask/internal/publisher"
 	"github.com/Joessst-Dev/queuetask/internal/workflow"
 )
 
@@ -31,26 +28,11 @@ var _ = Describe("Engine — HTTP trigger", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		repo = workflow.NewRepository(testDB)
-
-		var err error
-		tmpDir, err = os.MkdirTemp("", "eng-http-*")
-		Expect(err).NotTo(HaveOccurred())
-
-		DeferCleanup(func() {
-			os.RemoveAll(tmpDir)
-			_, err := testDB.Exec(`DELETE FROM queuetask.step_executions`)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = testDB.Exec(`DELETE FROM queuetask.workflow_instances`)
-			Expect(err).NotTo(HaveOccurred())
-		})
+		repo, tmpDir = setupTestRepo("eng-http-*")
 	})
 
 	makeEngine := func(yaml string) (*workflow.Engine, *workflow.Registry) {
-		writeWorkflowFile(tmpDir, yaml)
-		reg := workflow.NewRegistry(tmpDir)
-		Expect(reg.Load()).To(Succeed())
-		return workflow.NewEngine(repo, reg, publisher.Noop{}, nil, notify.Noop{}), reg
+		return makeEngineFromYAML(repo, tmpDir, yaml)
 	}
 
 	Describe("successful HTTP call", func() {

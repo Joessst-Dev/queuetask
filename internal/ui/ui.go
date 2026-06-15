@@ -79,6 +79,21 @@ type runsPageData struct {
 	Workflows []string
 }
 
+// parseCursor parses cursor_ts and cursor_id from their string forms.
+// Returns nil, nil, true when either string is empty (no cursor requested).
+// Returns nil, nil, false when both are non-empty but parsing fails.
+func parseCursor(tsStr, idStr string) (ct *time.Time, cid *uuid.UUID, ok bool) {
+	if tsStr == "" || idStr == "" {
+		return nil, nil, true
+	}
+	t, errT := time.Parse(time.RFC3339Nano, tsStr)
+	id, errID := uuid.Parse(idStr)
+	if errT != nil || errID != nil {
+		return nil, nil, false
+	}
+	return &t, &id, true
+}
+
 func parseStatuses(s string) []workflow.InstanceStatus {
 	if s == "" {
 		return nil
@@ -598,14 +613,12 @@ func (h *Handler) buildRunsGrid(ctx context.Context, f runsFilter, cursorTs, cur
 	rf := runsFilterToRepo(f)
 	rf.Limit = runsPageSize + 1
 
-	if cursorTs != "" && cursorID != "" {
-		t, errT := time.Parse(time.RFC3339Nano, cursorTs)
-		id, errID := uuid.Parse(cursorID)
-		if errT == nil && errID == nil {
-			rf.CursorTime, rf.CursorID = &t, &id
-		} else {
-			slog.Warn("runs/grid: bad cursor params", "cursor_ts", cursorTs, "cursor_id", cursorID)
-		}
+	ct, cid, ok := parseCursor(cursorTs, cursorID)
+	if !ok {
+		slog.Warn("runs/grid: bad cursor params", "cursor_ts", cursorTs, "cursor_id", cursorID)
+	}
+	if ct != nil {
+		rf.CursorTime, rf.CursorID = ct, cid
 	}
 
 	instances, err := h.repo.ListInstances(ctx, rf)
@@ -706,14 +719,13 @@ func (h *Handler) Instances(c *fiber.Ctx) error {
 		Limit:    instancesPageSize + 1,
 	}
 	isFirstPage := true
-	if tsStr, idStr := c.Query("cursor_ts"), c.Query("cursor_id"); tsStr != "" && idStr != "" {
-		t, errT := time.Parse(time.RFC3339Nano, tsStr)
-		id, errID := uuid.Parse(idStr)
-		if errT == nil && errID == nil {
-			f.CursorTime, f.CursorID, isFirstPage = &t, &id, false
-		} else {
-			slog.Warn("instances: bad cursor params", "cursor_ts", tsStr, "cursor_id", idStr)
-		}
+	tsStr, idStr := c.Query("cursor_ts"), c.Query("cursor_id")
+	ct, cid, ok := parseCursor(tsStr, idStr)
+	if !ok {
+		slog.Warn("instances: bad cursor params", "cursor_ts", tsStr, "cursor_id", idStr)
+	}
+	if ct != nil {
+		f.CursorTime, f.CursorID, isFirstPage = ct, cid, false
 	}
 
 	instances, err := h.repo.ListInstances(c.Context(), f)

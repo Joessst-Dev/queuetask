@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 )
@@ -56,9 +55,5 @@ func (s *SendGridSender) SendEmail(ctx context.Context, to, subject, body string
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("sendgrid: HTTP %d: %s", resp.StatusCode, errBody)
-	}
-	return nil
+	return checkHTTPResponse(resp, "sendgrid")
 }

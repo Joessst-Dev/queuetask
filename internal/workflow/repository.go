@@ -66,6 +66,11 @@ type StepExecution struct {
 	UpdatedAt    time.Time
 }
 
+const stepSelectColumns = `id, instance_id, step_name, step_order, status, trigger_type,
+		        depends_on, publish_topic, queueti_topic, queueti_group,
+		        http_method, http_url, http_headers, static_input,
+		        input, output, error_message, started_at, completed_at, created_at, updated_at`
+
 type Repository struct {
 	db *sql.DB
 }
@@ -232,10 +237,7 @@ func (r *Repository) CreateSteps(ctx context.Context, instanceID uuid.UUID, step
 
 func (r *Repository) ListSteps(ctx context.Context, instanceID uuid.UUID) ([]*StepExecution, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
-		        depends_on, publish_topic, queueti_topic, queueti_group,
-		        http_method, http_url, http_headers, static_input,
-		        input, output, error_message, started_at, completed_at, created_at, updated_at
+		`SELECT `+stepSelectColumns+`
 		 FROM queuetask.step_executions WHERE instance_id = $1 ORDER BY step_order`,
 		instanceID,
 	)
@@ -266,10 +268,7 @@ func (r *Repository) ListStepsByInstances(ctx context.Context, ids []uuid.UUID) 
 		args[i] = id
 	}
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
-		        depends_on, publish_topic, queueti_topic, queueti_group,
-		        http_method, http_url, http_headers, static_input,
-		        input, output, error_message, started_at, completed_at, created_at, updated_at
+		`SELECT `+stepSelectColumns+`
 		 FROM queuetask.step_executions
 		 WHERE instance_id IN (`+strings.Join(placeholders, ",")+`)
 		 ORDER BY instance_id, step_order`,
@@ -292,10 +291,7 @@ func (r *Repository) ListStepsByInstances(ctx context.Context, ids []uuid.UUID) 
 
 func (r *Repository) GetStep(ctx context.Context, instanceID uuid.UUID, stepName string) (*StepExecution, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, instance_id, step_name, step_order, status, trigger_type,
-		        depends_on, publish_topic, queueti_topic, queueti_group,
-		        http_method, http_url, http_headers, static_input,
-		        input, output, error_message, started_at, completed_at, created_at, updated_at
+		`SELECT `+stepSelectColumns+`
 		 FROM queuetask.step_executions WHERE instance_id = $1 AND step_name = $2`,
 		instanceID, stepName,
 	)

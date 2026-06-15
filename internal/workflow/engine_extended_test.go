@@ -3,7 +3,6 @@ package workflow_test
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"sync"
 	"time"
 
@@ -148,19 +147,7 @@ var _ = Describe("Engine (extended)", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		repo = workflow.NewRepository(testDB)
-
-		var err error
-		tmpDir, err = os.MkdirTemp("", "eng-ext-*")
-		Expect(err).NotTo(HaveOccurred())
-
-		DeferCleanup(func() {
-			os.RemoveAll(tmpDir)
-			_, err := testDB.Exec(`DELETE FROM queuetask.step_executions`)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = testDB.Exec(`DELETE FROM queuetask.workflow_instances`)
-			Expect(err).NotTo(HaveOccurred())
-		})
+		repo, tmpDir = setupTestRepo("eng-ext-*")
 	})
 
 	loadWorkflow := func(yaml string) *workflow.Engine {

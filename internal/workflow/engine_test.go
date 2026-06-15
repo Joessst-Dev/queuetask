@@ -45,25 +45,11 @@ var _ = Describe("Engine", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		repo = workflow.NewRepository(testDB)
-
-		var err error
-		tmpDir, err = os.MkdirTemp("", "wf-test-*")
-		Expect(err).NotTo(HaveOccurred())
+		repo, tmpDir = setupTestRepo("wf-test-*")
 		writeWorkflowFile(tmpDir, exampleWorkflow)
-
 		registry = workflow.NewRegistry(tmpDir)
 		Expect(registry.Load()).To(Succeed())
-
 		engine = workflow.NewEngine(repo, registry, publisher.Noop{}, nil, notify.Noop{})
-
-		DeferCleanup(func() {
-			os.RemoveAll(tmpDir)
-			_, err := testDB.Exec(`DELETE FROM queuetask.step_executions`)
-			Expect(err).NotTo(HaveOccurred())
-			_, err = testDB.Exec(`DELETE FROM queuetask.workflow_instances`)
-			Expect(err).NotTo(HaveOccurred())
-		})
 	})
 
 	Describe("StartInstance", func() {
