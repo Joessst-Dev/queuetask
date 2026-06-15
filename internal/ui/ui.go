@@ -13,7 +13,9 @@ import (
 	"html/template"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/url"
+	"slices"
 	"os"
 	"path/filepath"
 	"sort"
@@ -254,11 +256,12 @@ var notifFieldToEvent = map[string]string{
 // without a Fiber setup.
 func parseNotification(formValue func(string) string) *builderNotification {
 	var on []string
-	for _, key := range []string{"notif_on_step_waiting_manual", "notif_on_instance_completed", "notif_on_instance_failed"} {
+	for key, event := range notifFieldToEvent {
 		if formValue(key) == "on" {
-			on = append(on, notifFieldToEvent[key])
+			on = append(on, event)
 		}
 	}
+	slices.Sort(on)
 
 	var emailTo []string
 	for i := range maxBuilderRows {
@@ -382,7 +385,7 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 	userOK := subtle.ConstantTimeCompare([]byte(body.Username), []byte(h.cfg.Username)) == 1
 	passOK := subtle.ConstantTimeCompare([]byte(body.Password), []byte(h.cfg.Password)) == 1
 	if !userOK || !passOK {
-		if strings.Contains(c.Get("Accept"), "text/html") {
+		if auth.AcceptsHTML(c) {
 			c.Status(fiber.StatusUnauthorized)
 			return h.render(c, "login.html", loginData{Error: "invalid username or password"})
 		}
@@ -404,7 +407,7 @@ func (h *Handler) Login(c *fiber.Ctx) error {
 		MaxAge:   int(h.cfg.TokenExpiry.Seconds()),
 	})
 
-	if strings.Contains(c.Get("Accept"), "text/html") {
+	if auth.AcceptsHTML(c) {
 		return c.Redirect("/", fiber.StatusFound)
 	}
 	return c.JSON(fiber.Map{
@@ -597,6 +600,16 @@ func (h *Handler) RegisterRoutes(app *fiber.App) {
 	g.Post("/instances/:id/steps/:step/trigger", h.TriggerStep)
 }
 
+// paginationURL builds a cursor URL from the last instance on the page plus
+// any additional filter parameters the caller wants to preserve.
+func paginationURL(base string, last *workflow.Instance, extra url.Values) string {
+	params := url.Values{}
+	params.Set("cursor_ts", last.CreatedAt.UTC().Format(time.RFC3339Nano))
+	params.Set("cursor_id", last.ID.String())
+	maps.Copy(params, extra)
+	return base + "?" + params.Encode()
+}
+
 func (h *Handler) render(c *fiber.Ctx, name string, data any) error {
 	var buf bytes.Buffer
 	if err := h.tmpl.ExecuteTemplate(&buf, name, data); err != nil {
@@ -707,23 +720,20 @@ func (h *Handler) buildRunsGrid(ctx context.Context, f runsFilter, cursorTs, cur
 
 	var cursorURL string
 	if hasMore {
-		last := instances[len(instances)-1]
-		params := url.Values{}
-		params.Set("cursor_ts", last.CreatedAt.UTC().Format(time.RFC3339Nano))
-		params.Set("cursor_id", last.ID.String())
+		extra := url.Values{}
 		if f.StatusesStr != "" {
-			params.Set("status", f.StatusesStr)
+			extra.Set("status", f.StatusesStr)
 		}
 		if f.Workflow != "" {
-			params.Set("workflow", f.Workflow)
+			extra.Set("workflow", f.Workflow)
 		}
 		if f.After != "" {
-			params.Set("after", f.After)
+			extra.Set("after", f.After)
 		}
 		if f.Before != "" {
-			params.Set("before", f.Before)
+			extra.Set("before", f.Before)
 		}
-		cursorURL = "/ui/runs/grid?" + params.Encode()
+		cursorURL = paginationURL("/ui/runs/grid", instances[len(instances)-1], extra)
 	}
 
 	return runsGridData{
@@ -814,14 +824,11 @@ func (h *Handler) Instances(c *fiber.Ctx) error {
 
 	var cursorURL string
 	if hasMore {
-		last := instances[len(instances)-1]
-		params := url.Values{}
-		params.Set("cursor_ts", last.CreatedAt.UTC().Format(time.RFC3339Nano))
-		params.Set("cursor_id", last.ID.String())
+		extra := url.Values{}
 		if s := c.Query("status"); s != "" {
-			params.Set("status", s)
+			extra.Set("status", s)
 		}
-		cursorURL = "/ui/instances?" + params.Encode()
+		cursorURL = paginationURL("/ui/instances", instances[len(instances)-1], extra)
 	}
 
 	return h.render(c, "instances.html", instancesPageData{

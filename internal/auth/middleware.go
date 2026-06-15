@@ -48,7 +48,7 @@ func respondUnauthorized(c *fiber.Ctx) error {
 		c.Set("HX-Redirect", "/login")
 		return c.SendStatus(fiber.StatusUnauthorized)
 	}
-	if strings.Contains(c.Get("Accept"), "text/html") {
+	if AcceptsHTML(c) {
 		return c.Redirect("/login", fiber.StatusFound)
 	}
 	return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "unauthorized"})

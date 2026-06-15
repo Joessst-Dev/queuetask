@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/gofiber/fiber/v2"
 )
 
 const CookieName = "queuetask_token"
@@ -46,6 +48,11 @@ func VerifyToken(secret, tokenStr string) (*Claims, error) {
 		return nil, fmt.Errorf("invalid token")
 	}
 	return claims, nil
+}
+
+// AcceptsHTML reports whether the request prefers an HTML response.
+func AcceptsHTML(c *fiber.Ctx) bool {
+	return strings.Contains(c.Get("Accept"), "text/html")
 }
 
 func RandomSecret() string {
