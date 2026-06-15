@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // VonageSender sends SMS via the Vonage SMS REST API (formerly Nexmo).
@@ -25,7 +24,7 @@ func NewVonageSender(apiKey, apiSecret, from string) *VonageSender {
 		apiKey:    apiKey,
 		apiSecret: apiSecret,
 		from:      from,
-		client:    &http.Client{Timeout: 15 * time.Second},
+		client:    newDefaultHTTPClient(),
 	}
 }
 

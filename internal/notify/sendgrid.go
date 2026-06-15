@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 )
 
 // SendGridSender sends email via the SendGrid v3 Mail Send API.
@@ -21,7 +20,7 @@ func NewSendGridSender(apiKey, from string) *SendGridSender {
 	return &SendGridSender{
 		apiKey: apiKey,
 		from:   from,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: newDefaultHTTPClient(),
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // TwilioSender sends SMS via the Twilio Messages API.
@@ -23,7 +22,7 @@ func NewTwilioSender(accountSID, authToken, from string) *TwilioSender {
 		accountSID: accountSID,
 		authToken:  authToken,
 		from:       from,
-		client:     &http.Client{Timeout: 15 * time.Second},
+		client:     newDefaultHTTPClient(),
 	}
 }
 

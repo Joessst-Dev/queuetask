@@ -292,15 +292,17 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			}
 
 		case TriggerAuto:
-			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusRunning, mergedInput)
-			if err != nil {
-				return err
-			}
-			if won {
+			won, err := e.claimAndDo(ctx, instanceID, s.StepName, StatusRunning, mergedInput, func() error {
 				if err := e.completeStep(ctx, instanceID, s.StepName, mergedInput); err != nil {
 					return err
 				}
 				return e.advance(ctx, instanceID)
+			})
+			if err != nil {
+				return err
+			}
+			if won {
+				return nil // recursion already advanced everything; snapshot is stale
 			}
 			// Lost the race: another node claimed this step. Fall through to the next
 			// pending step in this (stale) snapshot — safe because no deps from this
@@ -316,11 +318,7 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 			}
 
 		case TriggerHTTP:
-			won, err := e.repo.ClaimStep(ctx, instanceID, s.StepName, StatusRunning, mergedInput)
-			if err != nil {
-				return err
-			}
-			if won {
+			won, err := e.claimAndDo(ctx, instanceID, s.StepName, StatusRunning, mergedInput, func() error {
 				output, httpErr := e.executeHTTPStep(ctx, s, mergedInput)
 				if httpErr != nil {
 					// Use a detached context: the inbound ctx may already be cancelled
@@ -335,6 +333,12 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 					return err
 				}
 				return e.advance(ctx, instanceID)
+			})
+			if err != nil {
+				return err
+			}
+			if won {
+				return nil // recursion already advanced everything; snapshot is stale
 			}
 			// Lost the race: fall through, same reasoning as TriggerAuto.
 		}
@@ -437,6 +441,18 @@ func parseHTTPResponseBody(resp *http.Response) (json.RawMessage, error) {
 	}
 	wrapped, _ := json.Marshal(map[string]string{"body": string(respBody)})
 	return json.RawMessage(wrapped), nil
+}
+
+// claimAndDo atomically claims a step; if this caller wins the race it runs
+// onWon and returns (true, onWon's error). Returns (false, nil) when another
+// node already claimed the step. Callers must return nil on won=true because
+// onWon already invoked e.advance recursively, making the current snapshot stale.
+func (e *Engine) claimAndDo(ctx context.Context, instanceID uuid.UUID, stepName string, newStatus StepStatus, input json.RawMessage, onWon func() error) (bool, error) {
+	won, err := e.repo.ClaimStep(ctx, instanceID, stepName, newStatus, input)
+	if err != nil || !won {
+		return won, err
+	}
+	return true, onWon()
 }
 
 func depsCompleted(deps []string, completed map[string]json.RawMessage) bool {

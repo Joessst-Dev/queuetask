@@ -4,7 +4,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+func newDefaultHTTPClient() *http.Client {
+	return &http.Client{Timeout: 15 * time.Second}
+}
 
 // checkHTTPResponse returns a formatted error on a non-2xx status, consuming
 // up to 512 bytes of the body for the message. Returns nil without touching

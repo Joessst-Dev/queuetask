@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
 
 // MailgunSender sends email via the Mailgun Messages API.
@@ -23,7 +22,7 @@ func NewMailgunSender(apiKey, domain, from string) *MailgunSender {
 		apiKey: apiKey,
 		domain: domain,
 		from:   from,
-		client: &http.Client{Timeout: 15 * time.Second},
+		client: newDefaultHTTPClient(),
 	}
 }
 

@@ -229,9 +229,10 @@ func parseBuilderForm(c *fiber.Ctx) builderDef {
 	if v, _ := strconv.Atoi(c.FormValue("version")); v > 0 {
 		def.Version = v
 	}
-	def.Triggers = parseTriggerRows(c)
-	def.Steps = parseStepRows(c)
-	def.Notifications = parseNotification(func(key string) string { return c.FormValue(key) })
+	fv := func(key string) string { return c.FormValue(key) }
+	def.Triggers = parseTriggerRows(fv)
+	def.Steps = parseStepRows(fv)
+	def.Notifications = parseNotification(fv)
 	return def
 }
 
@@ -282,20 +283,20 @@ func parseNotification(formValue func(string) string) *builderNotification {
 	return n
 }
 
-func parseTriggerRows(c *fiber.Ctx) []builderTrigger {
+func parseTriggerRows(formValue func(string) string) []builderTrigger {
 	var triggers []builderTrigger
 	for i := 0; i < maxBuilderRows; i++ {
-		ttype := c.FormValue(fmt.Sprintf("trigger_type_%d", i))
+		ttype := formValue(fmt.Sprintf("trigger_type_%d", i))
 		if ttype == "" {
 			continue
 		}
 		t := builderTrigger{
 			Type:          ttype,
-			Schedule:      c.FormValue(fmt.Sprintf("trigger_schedule_%d", i)),
-			Topic:         c.FormValue(fmt.Sprintf("trigger_topic_%d", i)),
-			ConsumerGroup: c.FormValue(fmt.Sprintf("trigger_group_%d", i)),
+			Schedule:      formValue(fmt.Sprintf("trigger_schedule_%d", i)),
+			Topic:         formValue(fmt.Sprintf("trigger_topic_%d", i)),
+			ConsumerGroup: formValue(fmt.Sprintf("trigger_group_%d", i)),
 		}
-		if raw := c.FormValue(fmt.Sprintf("trigger_input_%d", i)); raw != "" {
+		if raw := formValue(fmt.Sprintf("trigger_input_%d", i)); raw != "" {
 			var v any
 			if err := json.Unmarshal([]byte(raw), &v); err == nil {
 				t.Input = v
@@ -306,38 +307,38 @@ func parseTriggerRows(c *fiber.Ctx) []builderTrigger {
 	return triggers
 }
 
-func parseStepRows(c *fiber.Ctx) []builderStep {
+func parseStepRows(formValue func(string) string) []builderStep {
 	var steps []builderStep
 	for i := 0; i < maxBuilderRows; i++ {
-		name := c.FormValue(fmt.Sprintf("step_name_%d", i))
+		name := formValue(fmt.Sprintf("step_name_%d", i))
 		if name == "" {
 			continue
 		}
 		s := builderStep{
 			Name:               name,
-			Description:        c.FormValue(fmt.Sprintf("step_description_%d", i)),
-			Trigger:            c.FormValue(fmt.Sprintf("step_trigger_%d", i)),
-			PublishToTopic:     c.FormValue(fmt.Sprintf("step_publish_%d", i)),
-			QueueTiTopic:       c.FormValue(fmt.Sprintf("step_queueti_topic_%d", i)),
-			QueueTiConsumerGrp: c.FormValue(fmt.Sprintf("step_queueti_group_%d", i)),
+			Description:        formValue(fmt.Sprintf("step_description_%d", i)),
+			Trigger:            formValue(fmt.Sprintf("step_trigger_%d", i)),
+			PublishToTopic:     formValue(fmt.Sprintf("step_publish_%d", i)),
+			QueueTiTopic:       formValue(fmt.Sprintf("step_queueti_topic_%d", i)),
+			QueueTiConsumerGrp: formValue(fmt.Sprintf("step_queueti_group_%d", i)),
 		}
-		if raw := c.FormValue(fmt.Sprintf("step_depends_on_%d", i)); raw != "" {
+		if raw := formValue(fmt.Sprintf("step_depends_on_%d", i)); raw != "" {
 			for _, dep := range strings.Split(raw, ",") {
 				if dep = strings.TrimSpace(dep); dep != "" {
 					s.DependsOn = append(s.DependsOn, dep)
 				}
 			}
 		}
-		if raw := c.FormValue(fmt.Sprintf("step_input_%d", i)); raw != "" {
+		if raw := formValue(fmt.Sprintf("step_input_%d", i)); raw != "" {
 			var v any
 			if err := json.Unmarshal([]byte(raw), &v); err == nil {
 				s.Input = v
 			}
 		}
-		if u := c.FormValue(fmt.Sprintf("step_http_url_%d", i)); u != "" {
+		if u := formValue(fmt.Sprintf("step_http_url_%d", i)); u != "" {
 			s.HTTP = &builderHTTP{
 				URL:    u,
-				Method: c.FormValue(fmt.Sprintf("step_http_method_%d", i)),
+				Method: formValue(fmt.Sprintf("step_http_method_%d", i)),
 			}
 		}
 		steps = append(steps, s)
@@ -741,11 +742,13 @@ func (h *Handler) Instances(c *fiber.Ctx) error {
 	var cursorURL string
 	if hasMore {
 		last := instances[len(instances)-1]
-		cursorURL = "/ui/instances?cursor_ts=" + url.QueryEscape(last.CreatedAt.UTC().Format(time.RFC3339Nano)) +
-			"&cursor_id=" + last.ID.String()
+		params := url.Values{}
+		params.Set("cursor_ts", last.CreatedAt.UTC().Format(time.RFC3339Nano))
+		params.Set("cursor_id", last.ID.String())
 		if s := c.Query("status"); s != "" {
-			cursorURL += "&status=" + url.QueryEscape(s)
+			params.Set("status", s)
 		}
+		cursorURL = "/ui/instances?" + params.Encode()
 	}
 
 	return h.render(c, "instances.html", instancesPageData{
