@@ -237,6 +237,17 @@ func (e *Engine) completeStep(ctx context.Context, instanceID uuid.UUID, stepNam
 	return nil
 }
 
+func (e *Engine) tryTerminateInstance(ctx context.Context, instanceID uuid.UUID, status InstanceStatus, event notify.EventType) error {
+	won, err := e.repo.ClaimInstanceTerminal(ctx, instanceID, status)
+	if err != nil {
+		return err
+	}
+	if won {
+		e.dispatchNotification(instanceID, event, "")
+	}
+	return nil
+}
+
 // advance inspects all pending steps and activates those whose dependencies are met.
 func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 	steps, err := e.repo.ListSteps(ctx, instanceID)
@@ -248,24 +259,10 @@ func (e *Engine) advance(ctx context.Context, instanceID uuid.UUID) error {
 	allDone, anyFailed := workflowState(steps)
 
 	if anyFailed {
-		won, err := e.repo.ClaimInstanceTerminal(ctx, instanceID, InstanceFailed)
-		if err != nil {
-			return err
-		}
-		if won {
-			e.dispatchNotification(instanceID, notify.EventInstanceFailed, "")
-		}
-		return nil
+		return e.tryTerminateInstance(ctx, instanceID, InstanceFailed, notify.EventInstanceFailed)
 	}
 	if allDone {
-		won, err := e.repo.ClaimInstanceTerminal(ctx, instanceID, InstanceCompleted)
-		if err != nil {
-			return err
-		}
-		if won {
-			e.dispatchNotification(instanceID, notify.EventInstanceCompleted, "")
-		}
-		return nil
+		return e.tryTerminateInstance(ctx, instanceID, InstanceCompleted, notify.EventInstanceCompleted)
 	}
 
 	for _, s := range steps {

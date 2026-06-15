@@ -263,19 +263,17 @@ func parseNotification(formValue func(string) string) *builderNotification {
 	}
 	slices.Sort(on)
 
-	var emailTo []string
-	for i := range maxBuilderRows {
-		if v := formValue(fmt.Sprintf("notif_email_to_%d", i)); v != "" {
-			emailTo = append(emailTo, v)
+	parseRecipients := func(prefix string) []string {
+		var out []string
+		for i := range maxBuilderRows {
+			if v := formValue(fmt.Sprintf("%s_%d", prefix, i)); v != "" {
+				out = append(out, v)
+			}
 		}
+		return out
 	}
-
-	var smsTo []string
-	for i := range maxBuilderRows {
-		if v := formValue(fmt.Sprintf("notif_sms_to_%d", i)); v != "" {
-			smsTo = append(smsTo, v)
-		}
-	}
+	emailTo := parseRecipients("notif_email_to")
+	smsTo := parseRecipients("notif_sms_to")
 
 	if len(on) == 0 && len(emailTo) == 0 && len(smsTo) == 0 {
 		return nil
